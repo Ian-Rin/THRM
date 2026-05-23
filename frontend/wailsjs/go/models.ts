@@ -154,6 +154,20 @@ export namespace types {
 	        this.rpm = source["rpm"];
 	    }
 	}
+	export class LegionFnQSupportCache {
+	    checked: boolean;
+	    supported: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new LegionFnQSupportCache(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.checked = source["checked"];
+	        this.supported = source["supported"];
+	    }
+	}
 	export class FanGearTarget {
 	    gear: string;
 	    level: string;
@@ -204,6 +218,7 @@ export namespace types {
 	}
 	export class AppConfig {
 	    legionFnQ: LegionFnQConfig;
+	    legionFnQSupport: LegionFnQSupportCache;
 	    autoControl: boolean;
 	    manualGearToggleHotkey: string;
 	    autoControlToggleHotkey: string;
@@ -242,6 +257,7 @@ export namespace types {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.legionFnQ = this.convertValues(source["legionFnQ"], LegionFnQConfig);
+	        this.legionFnQSupport = this.convertValues(source["legionFnQSupport"], LegionFnQSupportCache);
 	        this.autoControl = source["autoControl"];
 	        this.manualGearToggleHotkey = source["manualGearToggleHotkey"];
 	        this.autoControlToggleHotkey = source["autoControlToggleHotkey"];
@@ -468,6 +484,7 @@ export namespace types {
 	        this.workMode = source["workMode"];
 	    }
 	}
+	
 	
 	
 	
