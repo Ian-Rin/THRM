@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"fyne.io/systray"
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 )
 
@@ -194,8 +195,8 @@ func (m *Manager) setupIcon() (err error) {
 	}
 
 	systray.SetIcon(m.iconData)
-	systray.SetTitle("BS2PRO 控制器")
-	systray.SetTooltip("BS2PRO 风扇控制器 - 运行中")
+	systray.SetTitle(appmeta.AppName)
+	systray.SetTooltip(appmeta.AppName + " - 运行中")
 	return nil
 }
 
@@ -392,20 +393,20 @@ func (m *Manager) updateMenuStatus() {
 
 				if status.Connected {
 					if status.AutoControlState {
-						tooltipText := fmt.Sprintf("BS2PRO 控制器 - 智能变频中\nCPU: %d°C GPU: %d°C", status.CPUTemp, status.GPUTemp)
+						tooltipText := fmt.Sprintf("%s - 智能变频中\nCPU: %d°C GPU: %d°C", appmeta.AppName, status.CPUTemp, status.GPUTemp)
 						if status.CurrentRPM > 0 {
 							tooltipText += fmt.Sprintf("\n风扇: %d RPM", status.CurrentRPM)
 						}
 						systray.SetTooltip(tooltipText)
 					} else {
-						tooltipText := "BS2PRO 控制器 - 手动模式"
+						tooltipText := appmeta.AppName + " - 手动模式"
 						if status.CurrentRPM > 0 {
 							tooltipText += fmt.Sprintf("\n风扇: %d RPM", status.CurrentRPM)
 						}
 						systray.SetTooltip(tooltipText)
 					}
 				} else {
-					systray.SetTooltip("BS2PRO 控制器 - 设备未连接")
+					systray.SetTooltip(appmeta.AppName + " - 设备未连接")
 				}
 			})
 		case <-m.done:
@@ -463,7 +464,7 @@ func (m *Manager) refreshTrayIcon() {
 		}
 
 		systray.SetIcon(m.iconData)
-		systray.SetTooltip("BS2PRO 风扇控制器 - 运行中")
+		systray.SetTooltip(appmeta.AppName + " - 运行中")
 
 		atomic.StoreInt32(&m.consecutiveFails, 0)
 		atomic.StoreInt64(&m.lastIconRefresh, time.Now().Unix())

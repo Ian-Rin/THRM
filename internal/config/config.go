@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 )
 
@@ -30,6 +31,7 @@ func (m *Manager) Load(isAutoStart bool) types.AppConfig {
 	// 优先尝试从默认目录加载配置
 	defaultConfigDir := m.GetDefaultConfigDir()
 	defaultConfigPath := filepath.Join(defaultConfigDir, "config.json")
+	legacyConfigPath := filepath.Join(m.GetLegacyConfigDir(), "config.json")
 
 	installConfigPath := filepath.Join(m.installDir, "config", "config.json")
 
@@ -39,6 +41,17 @@ func (m *Manager) Load(isAutoStart bool) types.AppConfig {
 	if m.tryLoadFromPath(defaultConfigPath) {
 		m.config.ConfigPath = defaultConfigPath
 		m.logInfo("从默认目录加载配置成功: %s", defaultConfigPath)
+		return m.config
+	}
+
+	m.logInfo("从默认目录加载配置失败，尝试从旧目录加载: %s", legacyConfigPath)
+
+	if m.tryLoadFromPath(legacyConfigPath) {
+		m.config.ConfigPath = defaultConfigPath
+		m.logInfo("从旧目录加载配置成功，将迁移到新目录: %s", legacyConfigPath)
+		if err := m.Save(); err != nil {
+			m.logError("迁移旧目录配置失败: %v", err)
+		}
 		return m.config
 	}
 
@@ -245,7 +258,16 @@ func (m *Manager) GetDefaultConfigDir() string {
 		m.logError("获取用户主目录失败: %v", err)
 		return filepath.Join(m.installDir, "config")
 	}
-	return filepath.Join(homeDir, ".bs2pro-controller")
+	return appmeta.UserConfigDir(homeDir)
+}
+
+// GetLegacyConfigDir 获取旧版本配置目录
+func (m *Manager) GetLegacyConfigDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(m.installDir, "config")
+	}
+	return appmeta.LegacyUserConfigDir(homeDir)
 }
 
 // Get 获取当前配置

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/autostart"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/bridge"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/config"
@@ -138,7 +139,7 @@ func NewCoreApp(debugMode, isAutoStart bool) *CoreApp {
 
 // Start 启动核心服务
 func (a *CoreApp) Start() error {
-	a.logInfo("=== BS2PRO 核心服务启动 ===")
+	a.logInfo("=== THRM 核心服务启动 ===")
 	a.logInfo("版本: %s", version.Get())
 	a.logInfo("安装目录: %s", config.GetInstallDir())
 	a.logInfo("调试模式: %v", a.debugMode)
@@ -250,7 +251,7 @@ func (a *CoreApp) Start() error {
 		})
 	}
 
-	a.logInfo("=== BS2PRO 核心服务启动完成 ===")
+	a.logInfo("=== THRM 核心服务启动完成 ===")
 
 	// 软件启动后立即开始温度监控（与智能控温开关解耦）
 	a.safeGo("startTemperatureMonitoring@Start", func() {
@@ -605,6 +606,8 @@ func (a *CoreApp) onQuitRequest() {
 
 // handleIPCRequest 处理 IPC 请求
 func (a *CoreApp) handleIPCRequest(req ipc.Request) ipc.Response {
+	a.logDebug("处理 IPC 请求[%s] type=%s", req.RequestID, req.Type)
+
 	switch req.Type {
 	// 设备相关
 	case ipc.ReqConnect:
@@ -1551,9 +1554,9 @@ func (a *CoreApp) handleHotkeyAction(action hotkeysvc.Action, shortcut string) {
 			})
 		}
 
-		title := "BS2PRO 快捷键"
+		title := appmeta.AppName + " 快捷键"
 		if !success {
-			title = "BS2PRO 快捷键失败"
+			title = appmeta.AppName + " 快捷键失败"
 		}
 		if a.notifier != nil {
 			a.notifier.Notify(title, message)
@@ -2116,13 +2119,10 @@ func launchGUI() error {
 	}
 
 	exeDir := filepath.Dir(exePath)
-	guiPath := filepath.Join(exeDir, "BS2PRO-Controller.exe")
-
-	if _, err := os.Stat(guiPath); os.IsNotExist(err) {
-		guiPath = filepath.Join(exeDir, "..", "BS2PRO-Controller.exe")
-		if _, err := os.Stat(guiPath); os.IsNotExist(err) {
-			return fmt.Errorf("GUI 程序不存在: %s", guiPath)
-		}
+	guiCandidates := append(appmeta.GUIExecutableCandidates(exeDir), appmeta.GUIExecutableCandidates(filepath.Join(exeDir, ".."))...)
+	guiPath := appmeta.FirstExistingPath(guiCandidates)
+	if guiPath == "" {
+		return fmt.Errorf("GUI 程序不存在: %v", guiCandidates)
 	}
 
 	cmd := exec.Command(guiPath)

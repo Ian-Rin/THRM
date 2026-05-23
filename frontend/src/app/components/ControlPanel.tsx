@@ -31,6 +31,7 @@ import { types } from '../../../wailsjs/go/models';
 import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
 import { toast } from 'sonner';
 import { DebugInfo } from '../types/app';
+import { BRAND } from '../lib/brand';
 import FanCurveProfileSelect from './FanCurveProfileSelect';
 import { ToggleSwitch, Button, Select, ScrollArea, Slider } from './ui/index';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -419,18 +420,18 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     setReleaseLoading(true);
     setReleaseError('');
     try {
-      const response = await fetch('https://api.github.com/repos/TIANLI0/BS2PRO-Controller/releases/latest', {
+      const response = await fetch(BRAND.latestReleaseApiUrl, {
         headers: { Accept: 'application/vnd.github+json' },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       setLatestReleaseTag(data?.tag_name || '');
-      setLatestReleaseUrl(data?.html_url || 'https://github.com/TIANLI0/BS2PRO-Controller/releases/latest');
+      setLatestReleaseUrl(data?.html_url || BRAND.latestReleaseUrl);
       setLatestReleaseBody(typeof data?.body === 'string' ? data.body.trim() : '');
     } catch {
       setReleaseError('检查更新失败，请稍后重试');
       setLatestReleaseTag('');
-      setLatestReleaseUrl('https://github.com/TIANLI0/BS2PRO-Controller/releases/latest');
+      setLatestReleaseUrl(BRAND.latestReleaseUrl);
       setLatestReleaseBody('');
     } finally {
       setReleaseLoading(false);
@@ -657,7 +658,15 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     }
   }, [activeCurveProfileId, loadCurveProfiles, onConfigChange]);
 
-  useEffect(() => { const i = setInterval(() => { apiService.updateGuiResponseTime().catch(() => {}); }, 10000); return () => clearInterval(i); }, []);
+  useEffect(() => {
+    const i = window.setInterval(() => {
+      if (document.hidden) {
+        return;
+      }
+      apiService.updateGuiResponseTime().catch(() => {});
+    }, 60000);
+    return () => window.clearInterval(i);
+  }, []);
   useEffect(() => { apiService.getAppVersion().then((v) => setAppVersion(v || '')).catch(() => setAppVersion('')); }, []);
   useEffect(() => { checkLatestRelease(); }, [checkLatestRelease]);
   useEffect(() => { loadCurveProfiles(); }, [loadCurveProfiles]);
@@ -1435,26 +1444,26 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
           <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
             <Rocket className="h-4 w-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold text-foreground">关于与更新</h3>
-            <span className="ml-auto text-[11px] text-muted-foreground">BS2PRO Controller</span>
+            <span className="ml-auto text-[11px] text-muted-foreground">{BRAND.name}</span>
           </div>
 
           <div className="space-y-3 border-b border-border/60 px-4 py-3.5">
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/35 px-3 py-3">
               <span className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-xs font-medium text-foreground">
-                BS2PRO Controller
+                {BRAND.name}
               </span>
               <span className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-xs text-muted-foreground">
-                当前 {appVersion ? `v${appVersion}` : '--'}
+                {`当前 ${appVersion ? `v${appVersion}` : '--'}`}
               </span>
               <a
-                href="https://github.com/TIANLI0/BS2PRO-Controller/releases/latest"
+                href={BRAND.latestReleaseUrl}
                 onClick={(e) => {
                   e.preventDefault();
-                  handleOpenUrl(latestReleaseUrl || 'https://github.com/TIANLI0/BS2PRO-Controller/releases/latest');
+                  handleOpenUrl(latestReleaseUrl || BRAND.latestReleaseUrl);
                 }}
                 className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
               >
-                最新 {releaseLoading ? '检查中…' : latestReleaseTag || '--'}
+                {`最新 ${releaseLoading ? '检查中…' : latestReleaseTag || '--'}`}
                 {hasNewVersion && !releaseLoading && <span className="h-2 w-2 rounded-full bg-destructive" />}
               </a>
             </div>

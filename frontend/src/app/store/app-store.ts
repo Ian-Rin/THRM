@@ -5,7 +5,7 @@ import { configService } from '../services/config-service';
 import { deviceService, type DeviceStatusPayload } from '../services/device-service';
 import { toast } from 'sonner';
 
-const BRIDGE_WARNING_MESSAGE = 'CPU/GPU 温度读取失败，请检查Pawnio是否安装成功，或升级最新版。';
+const getBridgeWarningMessage = () => 'CPU/GPU 温度读取失败，请检查 PawnIO 是否安装成功，或升级到最新版本。';
 
 type ActiveTab = 'status' | 'curve' | 'control';
 
@@ -55,7 +55,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const bridgeMessage = data?.bridgeMessage?.trim() ?? '';
     set({
       temperature: data,
-      bridgeWarning: data?.bridgeOk === false ? bridgeMessage || BRIDGE_WARNING_MESSAGE : null,
+      bridgeWarning: data?.bridgeOk === false ? bridgeMessage || getBridgeWarningMessage() : null,
     });
   },
 

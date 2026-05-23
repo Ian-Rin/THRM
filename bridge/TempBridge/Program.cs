@@ -8,7 +8,7 @@ using Newtonsoft.Json;
 using LibreHardwareMonitor.Hardware;
 using LibreHardwareMonitor.PawnIo;
 
-namespace TempBridge
+namespace THRM.TempBridge
 {
     public class TemperatureData
     {
@@ -135,8 +135,8 @@ namespace TempBridge
 
     class Program
     {
-        private const string PipeName = "BS2PRO_TempBridge";
-        private const string MutexName = @"Global\BS2PRO_TempBridge_Singleton";
+        private const string PipeName = "THRM_TempBridge";
+        private const string MutexName = @"Global\THRM_TempBridge_Singleton";
         private const int MaxInitRetries = 3;
         private const int InitRetryDelayMs = 2000;
         private const int ConsecutiveFailuresBeforeReinit = 5;
@@ -180,7 +180,7 @@ namespace TempBridge
             {
                 if (ShouldRunDiagnosticMode(args))
                 {
-                    Console.Error.WriteLine("TempBridge 启动失败");
+                    Console.Error.WriteLine("THRM TempBridge 启动失败");
                     Console.Error.WriteLine($"错误: {ex.Message}");
                 }
                 else
@@ -250,7 +250,7 @@ namespace TempBridge
 
         static void RunConsoleDiagnostics()
         {
-            Console.WriteLine("TempBridge 诊断模式");
+            Console.WriteLine("THRM TempBridge 诊断模式");
             Console.WriteLine($"时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
             Console.WriteLine();
 

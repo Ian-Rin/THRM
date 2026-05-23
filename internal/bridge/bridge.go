@@ -15,28 +15,48 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 )
 
 // Manager 桥接程序管理器
 type Manager struct {
-	cmd      *exec.Cmd
-	conn     net.Conn
-	pipeName string
-	ownsCmd  bool
-	mutex    sync.Mutex
-	logger   types.Logger
+	cmd       *exec.Cmd
+	conn      net.Conn
+	pipeName  string
+	ownsCmd   bool
+	state     string
+	lastError string
+	mutex     sync.Mutex
+	logger    types.Logger
 }
 
 const (
-	bridgeCommandTimeout = 3 * time.Second
-	bridgePipeName       = "BS2PRO_TempBridge"
+	bridgeCommandTimeout  = 3 * time.Second
+	BridgeStateNotStarted = "not_started"
+	BridgeStateStarting   = "starting"
+	BridgeStateRunning    = "running_owned"
+	BridgeStateAttached   = "attached"
+	BridgeStateDegraded   = "degraded"
+	BridgeStateStopping   = "stopping"
+	BridgeStateStopped    = "stopped"
+	BridgeStateFailed     = "failed"
 )
 
 // NewManager 创建新的桥接程序管理器
 func NewManager(logger types.Logger) *Manager {
 	return &Manager{
 		logger: logger,
+		state:  BridgeStateNotStarted,
+	}
+}
+
+func (m *Manager) setState(state string, err error) {
+	m.state = state
+	if err != nil {
+		m.lastError = err.Error()
+	} else if state == BridgeStateRunning || state == BridgeStateAttached || state == BridgeStateStopped || state == BridgeStateNotStarted {
+		m.lastError = ""
 	}
 }
 
@@ -49,15 +69,22 @@ func (m *Manager) EnsureRunning() error {
 	if m.conn != nil {
 		_, err := m.sendCommandUnsafe("Ping", "")
 		if err == nil {
+			if m.ownsCmd {
+				m.setState(BridgeStateRunning, nil)
+			} else {
+				m.setState(BridgeStateAttached, nil)
+			}
 			return nil // 连接正常
 		}
 		m.logger.Warn("桥接程序连接异常，重新启动: %v", err)
+		m.setState(BridgeStateDegraded, err)
 		m.stopUnsafe()
 	}
 
 	// 状态不一致（仅有进程）时进行自愈清理，避免后续阻塞
 	if m.cmd != nil {
 		m.logger.Warn("检测到桥接程序状态不一致，执行清理后重启")
+		m.setState(BridgeStateDegraded, fmt.Errorf("检测到桥接程序状态不一致"))
 		m.stopUnsafe()
 	}
 
@@ -66,36 +93,31 @@ func (m *Manager) EnsureRunning() error {
 
 // start 启动桥接程序
 func (m *Manager) start() error {
-	if conn, err := m.connectToPipe(bridgePipeName, 500*time.Millisecond); err == nil {
+	m.setState(BridgeStateStarting, nil)
+
+	if conn, pipeName, err := m.connectToAnyPipe(appmeta.BridgePipeCandidates(), 500*time.Millisecond); err == nil {
 		m.conn = conn
-		m.pipeName = bridgePipeName
+		m.pipeName = pipeName
 		m.ownsCmd = false
-		m.logger.Info("复用已存在的桥接程序，管道名称: %s", bridgePipeName)
+		m.setState(BridgeStateAttached, nil)
+		m.logger.Info("复用已存在的桥接程序，管道名称: %s", pipeName)
 		return nil
 	}
 
 	exeDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
+		m.setState(BridgeStateFailed, err)
 		return fmt.Errorf("获取程序目录失败: %v", err)
 	}
 
-	possiblePaths := []string{
-		filepath.Join(exeDir, "bridge", "TempBridge.exe"),       // 标准位置: exe同级的bridge目录
-		filepath.Join(exeDir, "..", "bridge", "TempBridge.exe"), // 上级目录的bridge目录
-		filepath.Join(exeDir, "TempBridge.exe"),                 // exe同级目录
-	}
-
-	var bridgePath string
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			bridgePath = path
-			break
-		}
-	}
+	possiblePaths := appmeta.BridgeExecutableCandidates(exeDir)
+	bridgePath := appmeta.FirstExistingPath(possiblePaths)
 
 	// 检查桥接程序是否存在
 	if bridgePath == "" {
-		return fmt.Errorf("TempBridge.exe 不存在，已尝试以下路径: %v", possiblePaths)
+		err := fmt.Errorf("%s 不存在，已尝试以下路径: %v", appmeta.BridgeExecutableName, possiblePaths)
+		m.setState(BridgeStateFailed, err)
+		return err
 	}
 
 	m.logger.Info("找到桥接程序: %s", bridgePath)
@@ -116,6 +138,7 @@ func (m *Manager) start() error {
 	}
 
 	if err := cmd.Start(); err != nil {
+		m.setState(BridgeStateFailed, err)
 		return fmt.Errorf("启动桥接程序失败: %v", err)
 	}
 
@@ -173,17 +196,22 @@ func (m *Manager) start() error {
 	case <-done:
 		if pipeName == "" {
 			cmd.Process.Kill()
-			return fmt.Errorf("未能获取管道名称")
+			err := fmt.Errorf("未能获取管道名称")
+			m.setState(BridgeStateFailed, err)
+			return err
 		}
 	case <-timeout.C:
 		cmd.Process.Kill()
-		return fmt.Errorf("等待桥接程序启动超时")
+		err := fmt.Errorf("等待桥接程序启动超时")
+		m.setState(BridgeStateFailed, err)
+		return err
 	}
 
 	// 连接到命名管道
 	conn, err := m.connectToPipe(pipeName, 5*time.Second)
 	if err != nil {
 		cmd.Process.Kill()
+		m.setState(BridgeStateFailed, err)
 		return fmt.Errorf("连接管道失败: %v", err)
 	}
 
@@ -194,14 +222,31 @@ func (m *Manager) start() error {
 		go func() {
 			_ = cmd.Wait()
 		}()
+		m.setState(BridgeStateAttached, nil)
 		m.logger.Info("桥接程序已存在，附着到共享实例，管道名称: %s", pipeName)
 		return nil
 	}
 
 	m.cmd = cmd
+	m.setState(BridgeStateRunning, nil)
 
 	m.logger.Info("桥接程序启动成功，管道名称: %s", pipeName)
 	return nil
+}
+
+func (m *Manager) connectToAnyPipe(pipeNames []string, timeout time.Duration) (net.Conn, string, error) {
+	var lastErr error
+	for _, pipeName := range pipeNames {
+		conn, err := m.connectToPipe(pipeName, timeout)
+		if err == nil {
+			return conn, pipeName, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("未找到可用桥接管道")
+	}
+	return nil, "", lastErr
 }
 
 // connectToPipe 连接到命名管道 (使用go-winio实现)
@@ -267,6 +312,7 @@ func (m *Manager) sendCommandUnsafe(cmdType, data string) (*types.BridgeResponse
 	// 发送命令
 	_, err = conn.Write(append(cmdBytes, '\n'))
 	if err != nil {
+		m.setState(BridgeStateDegraded, err)
 		m.closeConnUnsafe()
 		return nil, fmt.Errorf("发送命令失败: %v", err)
 	}
@@ -274,6 +320,7 @@ func (m *Manager) sendCommandUnsafe(cmdType, data string) (*types.BridgeResponse
 	reader := bufio.NewReader(conn)
 	responseBytes, err := reader.ReadBytes('\n')
 	if err != nil {
+		m.setState(BridgeStateDegraded, err)
 		m.closeConnUnsafe()
 		return nil, fmt.Errorf("读取响应失败: %v", err)
 	}
@@ -281,7 +328,14 @@ func (m *Manager) sendCommandUnsafe(cmdType, data string) (*types.BridgeResponse
 	var response types.BridgeResponse
 	err = json.Unmarshal(responseBytes, &response)
 	if err != nil {
+		m.setState(BridgeStateDegraded, err)
 		return nil, fmt.Errorf("解析响应失败: %v", err)
+	}
+
+	if m.ownsCmd {
+		m.setState(BridgeStateRunning, nil)
+	} else {
+		m.setState(BridgeStateAttached, nil)
 	}
 
 	return &response, nil
@@ -304,6 +358,7 @@ func (m *Manager) Stop() {
 
 // stopUnsafe 停止桥接程序（不加锁）
 func (m *Manager) stopUnsafe() {
+	m.setState(BridgeStateStopping, nil)
 	ownedCmd := m.cmd
 	ownsCmd := m.ownsCmd
 	m.cmd = nil
@@ -333,6 +388,8 @@ func (m *Manager) stopUnsafe() {
 			ownedCmd.Process.Kill()
 		}
 	}
+
+	m.setState(BridgeStateStopped, nil)
 }
 
 // GetTemperature 从桥接程序读取温度
@@ -391,43 +448,44 @@ func (m *Manager) GetTemperature(selection types.TemperatureSelection) types.Bri
 
 // GetStatus 获取桥接程序状态
 func (m *Manager) GetStatus() map[string]any {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	exeDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
 		return map[string]any{
 			"exists": false,
 			"error":  fmt.Sprintf("获取程序目录失败: %v", err),
+			"state":  m.state,
 		}
 	}
 
-	possiblePaths := []string{
-		filepath.Join(exeDir, "bridge", "TempBridge.exe"),
-		filepath.Join(exeDir, "..", "bridge", "TempBridge.exe"),
-		filepath.Join(exeDir, "TempBridge.exe"),
-	}
-
-	var bridgePath string
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			bridgePath = path
-			break
-		}
-	}
+	possiblePaths := appmeta.BridgeExecutableCandidates(exeDir)
+	bridgePath := appmeta.FirstExistingPath(possiblePaths)
 
 	if bridgePath == "" {
 		return map[string]any{
-			"exists":     false,
-			"triedPaths": possiblePaths,
-			"error":      "TempBridge.exe 不存在",
+			"exists":      false,
+			"state":       m.state,
+			"ownsProcess": m.ownsCmd,
+			"pipeName":    m.pipeName,
+			"lastError":   m.lastError,
+			"triedPaths":  possiblePaths,
+			"error":       fmt.Sprintf("%s 不存在", appmeta.BridgeExecutableName),
 		}
 	}
 
 	testResult := m.GetTemperature(types.GetDefaultTemperatureSelection())
 
 	return map[string]any{
-		"exists":   true,
-		"path":     bridgePath,
-		"working":  testResult.Success,
-		"testData": testResult,
+		"exists":      true,
+		"path":        bridgePath,
+		"working":     testResult.Success,
+		"state":       m.state,
+		"ownsProcess": m.ownsCmd,
+		"pipeName":    m.pipeName,
+		"lastError":   m.lastError,
+		"testData":    testResult,
 	}
 }
 

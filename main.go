@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/ipc"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -77,11 +78,11 @@ func ensureCoreServiceRunning() bool {
 	}
 
 	exeDir := filepath.Dir(exePath)
-	corePath := filepath.Join(exeDir, "BS2PRO-Core.exe")
+	corePath := appmeta.FirstExistingPath(appmeta.CoreExecutableCandidates(exeDir))
 
 	// 检查核心服务是否存在
-	if _, err := os.Stat(corePath); os.IsNotExist(err) {
-		mainLogger.Errorf("核心服务程序不存在: %s", corePath)
+	if corePath == "" {
+		mainLogger.Errorf("核心服务程序不存在: %v", appmeta.CoreExecutableCandidates(exeDir))
 		return false
 	}
 
@@ -133,7 +134,7 @@ func main() {
 
 	// 创建应用
 	err := wails.Run(&options.App{
-		Title:            "BS2PRO Controller",
+		Title:            appmeta.AppName,
 		Width:            1024,
 		Height:           768,
 		Frameless:        goruntime.GOOS == "windows",

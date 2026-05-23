@@ -10,10 +10,10 @@
     "#1": {
       "0409": {
         "identity": {
-          "name": "BS2PRO-Core",
+          "name": "THRMCore",
           "version": "1.0.0.0"
         },
-        "description": "BS2PRO Controller Core Service",
+        "description": "THRM Core Service",
         "minimum-os": "win10",
         "execution-level": "requireAdministrator",
         "ui-access": false,
@@ -40,16 +40,16 @@
         },
         "info": {
           "0409": {
-            "Comments": "BS2PRO Fan Controller Core Service",
+            "Comments": "THRM Core Service",
             "CompanyName": "TIANLI0",
-            "FileDescription": "BS2PRO Controller Core Service",
+            "FileDescription": "THRM Core Service",
             "FileVersion": "1.0.0.0",
-            "InternalName": "BS2PRO-Core",
+            "InternalName": "THRM Core",
             "LegalCopyright": "Copyright (c) 2025 TIANLI0",
             "LegalTrademarks": "",
-            "OriginalFilename": "BS2PRO-Core.exe",
+            "OriginalFilename": "THRM Core.exe",
             "PrivateBuild": "",
-            "ProductName": "BS2PRO Controller",
+            "ProductName": "THRM",
             "ProductVersion": "1.0.0.0",
             "SpecialBuild": ""
           }

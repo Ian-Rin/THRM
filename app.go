@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/ipc"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/version"
@@ -55,7 +56,7 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	guiLogger.Info("=== BS2PRO GUI 启动 ===")
+	guiLogger.Infof("=== %s GUI 启动 ===", appmeta.AppName)
 
 	// 连接到核心服务
 	if err := a.ipcClient.Connect(); err != nil {
@@ -68,7 +69,7 @@ func (a *App) startup(ctx context.Context) {
 		a.ipcClient.SetEventHandler(a.handleCoreEvent)
 	}
 
-	guiLogger.Info("=== BS2PRO GUI 启动完成 ===")
+	guiLogger.Infof("=== %s GUI 启动完成 ===", appmeta.AppName)
 }
 
 // GetAppVersion 返回应用版本号（来自版本模块）

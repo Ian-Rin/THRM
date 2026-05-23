@@ -21,6 +21,7 @@ import {
 import { Environment, Quit, WindowIsMaximised, WindowMinimise, WindowToggleMaximise } from '../../../wailsjs/runtime/runtime';
 import { types } from '../../../wailsjs/go/models';
 import clsx from 'clsx';
+import { BRAND } from '../lib/brand';
 
 const TAB_ITEMS = [
   { id: 'status', title: '状态', icon: LayoutGrid },
@@ -110,11 +111,21 @@ function TitleBarButton({
 }
 
 function TitleBar({
+  appName,
+  minimizeLabel,
+  maximizeLabel,
+  restoreLabel,
+  closeLabel,
   isMaximised,
   onMinimise,
   onToggleMaximise,
   onClose,
 }: {
+  appName: string;
+  minimizeLabel: string;
+  maximizeLabel: string;
+  restoreLabel: string;
+  closeLabel: string;
   isMaximised: boolean;
   onMinimise: () => void;
   onToggleMaximise: () => void;
@@ -129,18 +140,18 @@ function TitleBar({
       <div className="flex h-full min-w-0 items-center gap-2 pl-3">
         <Fan className="h-3.5 w-3.5 text-primary/80" />
         <span className="truncate text-[12px] font-medium tracking-tight text-foreground/80">
-          BS2PRO Controller
+          {appName}
         </span>
       </div>
 
       <div className="flex h-full items-center" style={NO_DRAG_STYLE}>
-        <TitleBarButton icon={<Minus className="h-3.5 w-3.5" />} label="最小化" onClick={onMinimise} />
+        <TitleBarButton icon={<Minus className="h-3.5 w-3.5" />} label={minimizeLabel} onClick={onMinimise} />
         <TitleBarButton
           icon={isMaximised ? <Copy className="h-3 w-3" /> : <Square className="h-3 w-3" />}
-          label={isMaximised ? '还原' : '最大化'}
+          label={isMaximised ? restoreLabel : maximizeLabel}
           onClick={onToggleMaximise}
         />
-        <TitleBarButton icon={<X className="h-3.5 w-3.5" />} label="关闭" onClick={onClose} danger />
+        <TitleBarButton icon={<X className="h-3.5 w-3.5" />} label={closeLabel} onClick={onClose} danger />
       </div>
     </div>
   );
@@ -387,6 +398,11 @@ export default function AppShell({
       {/* ── Slim native-style title bar (Windows only) ── */}
       {isWindowsChrome && (
         <TitleBar
+          appName={BRAND.name}
+          minimizeLabel="最小化"
+          maximizeLabel="最大化"
+          restoreLabel="还原"
+          closeLabel="关闭"
           isMaximised={isMaximised}
           onMinimise={() => WindowMinimise()}
           onToggleMaximise={handleToggleMaximise}
@@ -411,7 +427,7 @@ export default function AppShell({
                     </div>
                     <div className="min-w-0">
                       <h1 className="truncate text-[18px] font-semibold tracking-tight">
-                        BS2PRO Controller
+                        {BRAND.name}
                       </h1>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                         <span

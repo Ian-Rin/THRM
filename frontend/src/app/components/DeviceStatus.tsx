@@ -37,6 +37,14 @@ interface DeviceStatusProps {
   onConfigChange: (config: types.AppConfig) => void;
 }
 
+interface BridgeRuntimeStatus {
+  state?: string;
+  working?: boolean;
+  ownsProcess?: boolean;
+  pipeName?: string;
+  lastError?: string;
+}
+
 const getTempStatus = (temp: number) => {
   if (temp > 85) return { color: 'text-red-500', bg: 'bg-red-500', label: '过热' };
   if (temp > 75) return { color: 'text-orange-500', bg: 'bg-orange-500', label: '偏高' };
@@ -219,6 +227,7 @@ export default function DeviceStatus({
 }: DeviceStatusProps) {
   const [bridgeWarningReady, setBridgeWarningReady] = useState(false);
   const [activeCurveProfileName, setActiveCurveProfileName] = useState('');
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeRuntimeStatus | null>(null);
   const hasBridgeWarning = isConnected && temperature?.bridgeOk === false;
 
   useEffect(() => {
@@ -229,6 +238,32 @@ export default function DeviceStatus({
     const timer = window.setTimeout(() => setBridgeWarningReady(true), 2000);
     return () => window.clearTimeout(timer);
   }, [hasBridgeWarning]);
+
+  useEffect(() => {
+    if (!hasBridgeWarning || !bridgeWarningReady) {
+      setBridgeStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadBridgeStatus = async () => {
+      try {
+        const status = await apiService.getBridgeProgramStatus();
+        if (!cancelled) {
+          setBridgeStatus((status || null) as BridgeRuntimeStatus | null);
+        }
+      } catch {
+        if (!cancelled) {
+          setBridgeStatus(null);
+        }
+      }
+    };
+
+    loadBridgeStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [bridgeWarningReady, hasBridgeWarning]);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,6 +315,23 @@ export default function DeviceStatus({
   const fanSpinDuration = getFanSpinDuration(fanData?.currentRpm);
   const maxRpmInfo = getReportedMaxRpm(fanData?.gearSettings, fanData?.maxGear);
   const maxGearHighLevelRpm = maxRpmInfo.rpm;
+  const bridgeStateLabel = bridgeStatus?.state === 'running_owned'
+    ? '独占运行'
+    : bridgeStatus?.state === 'attached'
+      ? '附着共享实例'
+      : bridgeStatus?.state === 'starting'
+        ? '启动中'
+        : bridgeStatus?.state === 'degraded'
+          ? '降级'
+          : bridgeStatus?.state === 'failed'
+            ? '失败'
+            : bridgeStatus?.state === 'stopping'
+              ? '停止中'
+              : bridgeStatus?.state === 'stopped'
+                ? '已停止'
+                : bridgeStatus?.state === 'not_started'
+                  ? '未启动'
+                  : '';
   const maxRpmHint = isBs1Model
     ? 'BS1 最高可达超频挡 3000 RPM。'
     : maxGearHighLevelRpm === 4000
@@ -291,6 +343,7 @@ export default function DeviceStatus({
           : maxRpmInfo.codeHex
             ? `设备上报了未映射的最高挡位编码：${maxRpmInfo.codeHex}`
             : '等待设备上报最高转速能力。';
+  const maxTempStatus = getTempStatus(temperature?.maxTemp || 0);
 
   return (
     <div className="space-y-4">
@@ -434,6 +487,18 @@ export default function DeviceStatus({
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div className="flex-1">
                 <p>{temperature?.bridgeMessage || '温度桥接程序读取失败，请检查 PawnIO 驱动后重试。'}</p>
+                {bridgeStatus && (
+                  <div className="mt-2 space-y-1 text-xs text-amber-700/90 dark:text-amber-200/80">
+                    {bridgeStateLabel && (
+                      <p>
+                        桥接状态：{bridgeStateLabel}
+                        {typeof bridgeStatus.ownsProcess === 'boolean' ? ` · ${bridgeStatus.ownsProcess ? '当前实例已接管进程' : '当前实例复用共享进程'}` : ''}
+                      </p>
+                    )}
+                    {bridgeStatus.pipeName && <p>命名管道：{bridgeStatus.pipeName}</p>}
+                    {bridgeStatus.lastError && bridgeStatus.lastError !== temperature?.bridgeMessage && <p>诊断信息：{bridgeStatus.lastError}</p>}
+                  </div>
+                )}
                 <button
                   onClick={async () => {
                     try {
@@ -520,8 +585,8 @@ export default function DeviceStatus({
                 <ShieldCheck className="h-3.5 w-3.5" />
                 温度状态
               </div>
-              <div className={clsx('text-base font-semibold tabular-nums', getTempStatus(temperature?.maxTemp || 0).color)}>
-                {getTempStatus(temperature?.maxTemp || 0).label}
+              <div className={clsx('text-base font-semibold tabular-nums', maxTempStatus.color)}>
+                {maxTempStatus.label}
               </div>
             </div>
           </div>

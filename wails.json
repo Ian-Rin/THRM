@@ -1,7 +1,7 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "BS2PRO-Controller",
-  "outputfilename": "BS2PRO-Controller",
+  "name": "THRM",
+  "outputfilename": "THRM",
   "frontend:install": "bun install",
   "frontend:build": "bun run build",
   "frontend:dev:watcher": "bun run dev",
@@ -12,10 +12,10 @@
   },
   "info": {
     "companyName": "TIANLI0",
-    "productName": "BS2PRO-Controller",
-    "productVersion": "2.12.1",
+    "productName": "THRM",
+    "productVersion": "3.0.0",
     "copyright": "Copyright © 2026 TIANLI0",
-    "comments": "飞智空间站的BS2/BS2PRO替代控制器"
+    "comments": "THRM 桌面控制中心"
   },
   "nsisType": "multiple"
 }

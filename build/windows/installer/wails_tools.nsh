@@ -5,16 +5,16 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "BS2PRO-Controller"
+    !define INFO_PROJECTNAME "THRM"
 !endif
 !ifndef INFO_COMPANYNAME
     !define INFO_COMPANYNAME "TIANLI0"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "BS2PRO-Controller"
+    !define INFO_PRODUCTNAME "THRM"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "2.12.1"
+    !define INFO_PRODUCTVERSION "3.0.0"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "Copyright © 2026 TIANLI0"

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -83,13 +84,13 @@ func (m *Manager) createScheduledTask() error {
 
 	// 获取核心服务路径
 	exeDir := filepath.Dir(exePath)
-	corePath := filepath.Join(exeDir, "BS2PRO-Core.exe")
-	if _, err := os.Stat(corePath); os.IsNotExist(err) {
+	corePath := appmeta.FirstExistingPath(appmeta.CoreExecutableCandidates(exeDir))
+	if corePath == "" {
 		corePath = exePath
 	}
 	taskCommand := fmt.Sprintf("\"%s\" --autostart", corePath)
 	cmd := exec.Command("schtasks", "/create",
-		"/tn", "BS2PRO-Controller",
+		"/tn", appmeta.AppName,
 		"/tr", taskCommand,
 		"/sc", "onlogon",
 		"/delay", "0000:15",
@@ -109,7 +110,7 @@ func (m *Manager) createScheduledTask() error {
 
 // deleteScheduledTask 删除任务计划程序
 func (m *Manager) deleteScheduledTask() error {
-	cmd := exec.Command("schtasks", "/delete", "/tn", "BS2PRO-Controller", "/f")
+	cmd := exec.Command("schtasks", "/delete", "/tn", appmeta.AppName, "/f")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	output, err := cmd.CombinedOutput()
@@ -133,7 +134,10 @@ func (m *Manager) removeRegistryAutoStart() error {
 	defer key.Close()
 
 	// 删除注册表项
-	err = key.DeleteValue("BS2PRO-Controller")
+	err = key.DeleteValue(appmeta.AppName)
+	if err == registry.ErrNotExist {
+		err = key.DeleteValue(appmeta.LegacyAppName)
+	}
 	if err != nil && err != registry.ErrNotExist {
 		return fmt.Errorf("删除注册表项失败: %v", err)
 	}
@@ -189,15 +193,15 @@ func (m *Manager) setRegistryAutoStart() error {
 		return fmt.Errorf("获取程序路径失败: %v", err)
 	}
 	exeDir := filepath.Dir(exePath)
-	corePath := filepath.Join(exeDir, "BS2PRO-Core.exe")
+	corePath := appmeta.FirstExistingPath(appmeta.CoreExecutableCandidates(exeDir))
 
 	// 如果核心服务不存在，使用当前程序路径
-	if _, err := os.Stat(corePath); os.IsNotExist(err) {
+	if corePath == "" {
 		corePath = exePath
 	}
 	exePathWithArgs := fmt.Sprintf("\"%s\" --autostart", corePath)
 
-	err = key.SetStringValue("BS2PRO-Controller", exePathWithArgs)
+	err = key.SetStringValue(appmeta.AppName, exePathWithArgs)
 	if err != nil {
 		return fmt.Errorf("设置注册表失败: %v", err)
 	}
@@ -217,7 +221,7 @@ func (m *Manager) CheckWindowsAutoStart() bool {
 
 // checkScheduledTask 检查任务计划程序中的自启动任务
 func (m *Manager) checkScheduledTask() bool {
-	cmd := exec.Command("schtasks", "/query", "/tn", "BS2PRO-Controller")
+	cmd := exec.Command("schtasks", "/query", "/tn", appmeta.AppName)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	err := cmd.Run()
@@ -233,7 +237,11 @@ func (m *Manager) checkRegistryAutoStart() bool {
 	}
 	defer key.Close()
 
-	_, _, err = key.GetStringValue("BS2PRO-Controller")
+	_, _, err = key.GetStringValue(appmeta.AppName)
+	if err == nil {
+		return true
+	}
+	_, _, err = key.GetStringValue(appmeta.LegacyAppName)
 	return err == nil
 }
 

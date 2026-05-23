@@ -8,17 +8,25 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 )
 
+var messageCounter uint64
+
 const (
 	// PipeName 命名管道名称
-	PipeName = "BS2PRO-Controller-IPC"
+	PipeName = appmeta.IPCPipeName
+	// LegacyPipeName 旧版本命名管道名称
+	LegacyPipeName = appmeta.LegacyIPCPipeName
 	// PipePath 命名管道完整路径
 	PipePath = `\\.\pipe\` + PipeName
+	// LegacyPipePath 旧版本命名管道完整路径
+	LegacyPipePath = `\\.\pipe\` + LegacyPipeName
 )
 
 // RequestType 请求类型
@@ -87,23 +95,34 @@ const (
 
 // Request IPC 请求
 type Request struct {
-	Type RequestType     `json:"type"`
-	Data json.RawMessage `json:"data,omitempty"`
+	ProtocolVersion string          `json:"protocolVersion,omitempty"`
+	RequestID       string          `json:"requestId,omitempty"`
+	Timestamp       int64           `json:"timestamp,omitempty"`
+	Type            RequestType     `json:"type"`
+	Data            json.RawMessage `json:"data,omitempty"`
 }
 
 // Response IPC 响应
 type Response struct {
-	IsResponse bool            `json:"isResponse"` // 标识这是响应而非事件
-	Success    bool            `json:"success"`
-	Error      string          `json:"error,omitempty"`
-	Data       json.RawMessage `json:"data,omitempty"`
+	ProtocolVersion string          `json:"protocolVersion,omitempty"`
+	RequestID       string          `json:"requestId,omitempty"`
+	Timestamp       int64           `json:"timestamp,omitempty"`
+	IsResponse      bool            `json:"isResponse"` // 标识这是响应而非事件
+	Success         bool            `json:"success"`
+	ErrorCode       string          `json:"errorCode,omitempty"`
+	Error           string          `json:"error,omitempty"`
+	Data            json.RawMessage `json:"data,omitempty"`
 }
 
 // Event IPC 事件（服务器推送给客户端）
 type Event struct {
-	IsEvent bool            `json:"isEvent"` // 标识这是事件
-	Type    string          `json:"type"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	SchemaVersion string          `json:"schemaVersion,omitempty"`
+	EventID       string          `json:"eventId,omitempty"`
+	Timestamp     int64           `json:"timestamp,omitempty"`
+	Source        string          `json:"source,omitempty"`
+	IsEvent       bool            `json:"isEvent"` // 标识这是事件
+	Type          string          `json:"type"`
+	Data          json.RawMessage `json:"data,omitempty"`
 }
 
 // EventType 事件类型
@@ -133,6 +152,10 @@ type Server struct {
 
 // RequestHandler 请求处理函数类型
 type RequestHandler func(req Request) Response
+
+func newMessageID(prefix string) string {
+	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixMilli(), atomic.AddUint64(&messageCounter, 1))
+}
 
 // NewServer 创建 IPC 服务器
 func NewServer(handler RequestHandler, logger types.Logger) *Server {
@@ -210,7 +233,26 @@ func (s *Server) handleClient(conn net.Conn) {
 			s.logError("解析请求失败: %v", err)
 			continue
 		}
+		if req.ProtocolVersion == "" {
+			req.ProtocolVersion = appmeta.ProtocolVersion
+		}
+		if req.RequestID == "" {
+			req.RequestID = newMessageID("req")
+		}
+		if req.Timestamp == 0 {
+			req.Timestamp = time.Now().UnixMilli()
+		}
+		s.logDebug("IPC 请求[%s]: %s", req.RequestID, req.Type)
 		resp := s.handler(req)
+		if resp.ProtocolVersion == "" {
+			resp.ProtocolVersion = appmeta.ProtocolVersion
+		}
+		if resp.RequestID == "" {
+			resp.RequestID = req.RequestID
+		}
+		if resp.Timestamp == 0 {
+			resp.Timestamp = time.Now().UnixMilli()
+		}
 		resp.IsResponse = true
 
 		// 发送响应
@@ -237,9 +279,13 @@ func (s *Server) BroadcastEvent(eventType string, data any) {
 	}
 
 	event := Event{
-		IsEvent: true, // 标记为事件
-		Type:    eventType,
-		Data:    dataBytes,
+		SchemaVersion: appmeta.ProtocolVersion,
+		EventID:       newMessageID("evt"),
+		Timestamp:     time.Now().UnixMilli(),
+		Source:        "core",
+		IsEvent:       true, // 标记为事件
+		Type:          eventType,
+		Data:          dataBytes,
 	}
 
 	eventBytes, err := json.Marshal(event)
@@ -334,7 +380,15 @@ func (c *Client) Connect() error {
 	}
 
 	timeout := 5 * time.Second
-	conn, err := winio.DialPipe(PipePath, &timeout)
+	var conn net.Conn
+	var err error
+	for _, pipeName := range appmeta.IPCPipeCandidates() {
+		pipePath := `\\.\pipe\` + pipeName
+		conn, err = winio.DialPipe(pipePath, &timeout)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("连接 IPC 服务器失败: %v", err)
 	}
@@ -428,8 +482,11 @@ func (c *Client) SendRequest(reqType RequestType, data any) (*Response, error) {
 	}
 
 	req := Request{
-		Type: reqType,
-		Data: dataBytes,
+		ProtocolVersion: appmeta.ProtocolVersion,
+		RequestID:       newMessageID("req"),
+		Timestamp:       time.Now().UnixMilli(),
+		Type:            reqType,
+		Data:            dataBytes,
 	}
 
 	reqBytes, err := json.Marshal(req)
@@ -491,18 +548,21 @@ func (c *Client) logDebug(format string, v ...any) {
 // CheckCoreServiceRunning 检查核心服务是否正在运行
 func CheckCoreServiceRunning() bool {
 	timeout := 1 * time.Second
-	conn, err := winio.DialPipe(PipePath, &timeout)
-	if err != nil {
-		return false
+	for _, pipeName := range appmeta.IPCPipeCandidates() {
+		pipePath := `\\.\pipe\` + pipeName
+		conn, err := winio.DialPipe(pipePath, &timeout)
+		if err == nil {
+			conn.Close()
+			return true
+		}
 	}
-	conn.Close()
-	return true
+	return false
 }
 
 // GetCoreLockFilePath 获取核心服务锁文件路径
 func GetCoreLockFilePath() string {
 	tempDir := os.TempDir()
-	return fmt.Sprintf("%s/bs2pro-core.lock", tempDir)
+	return fmt.Sprintf("%s/thrm core.lock", tempDir)
 }
 
 // StartCoreRequestParams 启动核心服务的请求参数

@@ -207,6 +207,8 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
   const previousMaxTempRef = useRef<number | null>(null);
   const lowRpmWarnedInDragRef = useRef(false);
   const chartBoundsRef = useRef<{ top: number; bottom: number; left: number; right: number; yMin: number; yMax: number } | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingDragYRef = useRef<number | null>(null);
   const [rpmRange, setRpmRange] = useState({ min: 0, max: 4000, ticks: [0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000] });
 
   const activeProfile = useMemo(() => curveProfiles.find((p) => p.id === activeProfileId) ?? null, [curveProfiles, activeProfileId]);
@@ -441,19 +443,53 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
     updatePoint(dragIndex, bounds.yMin + relativeY * (bounds.yMax - bounds.yMin));
   }, [dragIndex, updatePoint]);
 
-  const handleDragEnd = useCallback(() => { setDragIndex(null); setTimeout(() => setIsInteracting(false), 100); }, []);
+  const scheduleDrag = useCallback((clientY: number) => {
+    pendingDragYRef.current = clientY;
+    if (dragFrameRef.current !== null) {
+      return;
+    }
+
+    dragFrameRef.current = window.requestAnimationFrame(() => {
+      dragFrameRef.current = null;
+      const nextClientY = pendingDragYRef.current;
+      pendingDragYRef.current = null;
+      if (nextClientY !== null) {
+        handleDrag(nextClientY);
+      }
+    });
+  }, [handleDrag]);
+
+  const handleDragEnd = useCallback(() => {
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    pendingDragYRef.current = null;
+    setDragIndex(null);
+    setTimeout(() => setIsInteracting(false), 100);
+  }, []);
 
   useEffect(() => {
     if (dragIndex === null) return;
-    const mm = (e: MouseEvent) => { e.preventDefault(); handleDrag(e.clientY); };
-    const tm = (e: TouchEvent) => { if (e.touches.length > 0) handleDrag(e.touches[0].clientY); };
+    const mm = (e: MouseEvent) => { e.preventDefault(); scheduleDrag(e.clientY); };
+    const tm = (e: TouchEvent) => { if (e.touches.length > 0) scheduleDrag(e.touches[0].clientY); };
     const end = () => handleDragEnd();
     document.addEventListener('mousemove', mm);
     document.addEventListener('mouseup', end);
     document.addEventListener('touchmove', tm, { passive: false });
     document.addEventListener('touchend', end);
-    return () => { document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', end); document.removeEventListener('touchmove', tm); document.removeEventListener('touchend', end); };
-  }, [dragIndex, handleDrag, handleDragEnd]);
+    return () => {
+      document.removeEventListener('mousemove', mm);
+      document.removeEventListener('mouseup', end);
+      document.removeEventListener('touchmove', tm);
+      document.removeEventListener('touchend', end);
+      if (dragFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
+      pendingDragYRef.current = null;
+    };
+  }, [dragIndex, handleDragEnd, scheduleDrag]);
 
   /* ── Save / Reset ── */
 

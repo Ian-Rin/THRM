@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 	"github.com/gen2brain/beeep"
 )
@@ -16,7 +17,7 @@ type Manager struct {
 }
 
 func NewManager(logger types.Logger, iconData []byte) *Manager {
-	beeep.AppName = "BS2PRO Controller"
+	beeep.AppName = appmeta.AppName
 	return &Manager{
 		logger:   logger,
 		iconPath: ensureNotificationIcon(iconData, logger),
@@ -52,7 +53,7 @@ func ensureNotificationIcon(iconData []byte, logger types.Logger) string {
 		cacheDir = os.TempDir()
 	}
 
-	iconDir := filepath.Join(cacheDir, "BS2PRO-Controller")
+	iconDir := filepath.Join(cacheDir, appmeta.NotificationCacheDir)
 	if err := os.MkdirAll(iconDir, 0755); err != nil {
 		if logger != nil {
 			logger.Debug("创建通知图标缓存目录失败: %v", err)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -24,7 +25,7 @@ type CustomLogger struct {
 
 // NewCustomLogger 创建新的日志记录器
 func NewCustomLogger(debugMode bool, installDir string) (*CustomLogger, error) {
-	logDir := filepath.Join(installDir, "logs")
+	logDir := defaultLogDir(installDir)
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建日志目录失败: %v", err)
 	}
@@ -116,6 +117,13 @@ func NewCustomLogger(debugMode bool, installDir string) (*CustomLogger, error) {
 		logDir:    logDir,
 		atom:      atom,
 	}, nil
+}
+
+func defaultLogDir(installDir string) string {
+	if configDir, err := os.UserConfigDir(); err == nil && configDir != "" {
+		return filepath.Join(configDir, appmeta.AppName, "logs")
+	}
+	return filepath.Join(installDir, "logs")
 }
 
 // Info 记录信息日志

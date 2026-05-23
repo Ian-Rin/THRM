@@ -29,7 +29,7 @@
 ## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
 ####
 ## Override to prevent duplicate product names in registry key
-!define UNINST_KEY_NAME "BS2PRO-Controller"
+!define UNINST_KEY_NAME "THRM"
 ####
 ## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
 ####
@@ -51,6 +51,15 @@
 !define PAWNIO_BUNDLED_VERSION "2.2.0.0"
 !endif
 
+!ifndef CORE_EXECUTABLE_SOURCE
+!define CORE_EXECUTABLE_SOURCE "..\..\bin\THRM Core.exe"
+    !if /FileExists "${CORE_EXECUTABLE_SOURCE}"
+    !else
+        !undef CORE_EXECUTABLE_SOURCE
+        !define CORE_EXECUTABLE_SOURCE "..\..\bin\BS2PRO-Core.exe"
+    !endif
+!endif
+
 # The version information for this two must consist of 4 parts
 VIProductVersion "${INFO_PRODUCTVERSION}.0"
 VIFileVersion    "${INFO_PRODUCTVERSION}.0"
@@ -70,9 +79,10 @@ ManifestDPIAware true
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
 !define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}"
-!define MUI_FINISHPAGE_RUN_TEXT "安装完成后立即启动 BS2PRO 控制器"
+!define MUI_FINISHPAGE_RUN_TEXT "安装完成后立即启动 THRM"
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
+!define MUI_PAGE_CUSTOMFUNCTION_PRE WelcomePagePre
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
@@ -95,7 +105,10 @@ OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the inst
 InstallDir "$PROGRAMFILES64\${INFO_PRODUCTNAME}" # Default installing folder (single level)
 ShowInstDetails show # This will always show the installation details.
 
+Var LegacyRenameNoticeNeeded
+
 Function .onInit
+    StrCpy $LegacyRenameNoticeNeeded "0"
    !insertmacro wails.checkArchitecture
    
    # Check for .NET Framework 4.7.2 or later
@@ -111,6 +124,13 @@ Function .onInit
    
    # Check for existing installation and set install directory
    Call DetectExistingInstallation
+FunctionEnd
+
+Function WelcomePagePre
+    ${If} $LegacyRenameNoticeNeeded == "1"
+        !insertmacro INSTALLOPTIONS_WRITE "ioSpecial.ini" "Field 2" "Text" "安装前提示：BS2Pro Controller 已更名为 THRM"
+        !insertmacro INSTALLOPTIONS_WRITE "ioSpecial.ini" "Field 3" "Text" "检测到你正在从旧版 BS2Pro Controller 升级。$\r$\n$\r$\nTHRM 3.0 已正式完成更名，本次安装将继续沿用升级流程：$\r$\n1. 自动保留现有配置和用户数据；$\r$\n2. 默认继续使用当前安装目录，避免升级中断；$\r$\n3. 安装完成后程序名称统一变更为 THRM。$\r$\n$\r$\n如果你希望安装目录也改成 THRM，请在下一步“安装位置”页面手动修改。"
+    ${EndIf}
 FunctionEnd
 
 # Function to clean up legacy/duplicate registry keys
@@ -183,7 +203,7 @@ Function DetectExistingInstallation
     # First, check all possible registry keys to find installation path
     # DO NOT delete registry keys yet - we need them to find the install path!
     
-    # Method 1: Try current/correct registry key (BS2PRO-Controller)
+    # Method 1: Try current registry key (THRM)
     ReadRegStr $R0 HKLM "${UNINST_KEY}" "InstallLocation"
     ${If} $R0 != ""
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
@@ -194,7 +214,7 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R0\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R0
             DetailPrint "发现已有安装 (正确键-安装位置-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
 
@@ -212,7 +232,7 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R1\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R1
             DetailPrint "发现已有安装 (从正确的注册表键-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
     
@@ -223,12 +243,12 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R0
             DetailPrint "发现旧版安装 (重复键-安装位置): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
         ${If} ${FileExists} "$R0\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R0
             DetailPrint "发现旧版安装 (重复键-安装位置-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
 
@@ -241,12 +261,12 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (重复键): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
         ${If} ${FileExists} "$R1\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (重复键-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
     
@@ -260,12 +280,12 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (从图标路径): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
         ${If} ${FileExists} "$R1\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (从图标路径-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
     
@@ -275,12 +295,12 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R0
             DetailPrint "发现旧版安装 (旧格式键-安装位置): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
         ${If} ${FileExists} "$R0\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R0
             DetailPrint "发现旧版安装 (旧格式键-安装位置-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
 
@@ -293,12 +313,12 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (旧格式键): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
         ${If} ${FileExists} "$R1\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (旧格式键-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
     
@@ -308,12 +328,12 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R0
             DetailPrint "发现旧版安装 (TIANLI0BS2PRO-安装位置): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
         ${If} ${FileExists} "$R0\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R0
             DetailPrint "发现旧版安装 (TIANLI0BS2PRO-安装位置-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
 
@@ -326,12 +346,12 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (TIANLI0BS2PRO): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
         ${If} ${FileExists} "$R1\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (TIANLI0BS2PRO-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
     
@@ -352,7 +372,7 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R1\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R1
             DetailPrint "发现已有安装 (从图标-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
     
@@ -367,7 +387,7 @@ Function DetectExistingInstallation
         ${If} ${FileExists} "$R0\BS2PRO-Core.exe"
             StrCpy $INSTDIR $R0
             DetailPrint "发现已有安装 (从安装位置-Core): $INSTDIR"
-            Goto found_installation
+            Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
     
@@ -392,36 +412,64 @@ Function DetectExistingInstallation
     ${EndIf}
     
     # Sixth, try alternative common paths
-    ${If} ${FileExists} "$PROGRAMFILES64\BS2PRO-Controller\${PRODUCT_EXECUTABLE}"
-        StrCpy $INSTDIR "$PROGRAMFILES64\BS2PRO-Controller"
+    ${If} ${FileExists} "$PROGRAMFILES64\THRM\${PRODUCT_EXECUTABLE}"
+        StrCpy $INSTDIR "$PROGRAMFILES64\THRM"
         DetailPrint "发现已有安装: $INSTDIR"
         Goto found_installation
     ${EndIf}
     
-    ${If} ${FileExists} "$PROGRAMFILES32\BS2PRO-Controller\${PRODUCT_EXECUTABLE}"
-        StrCpy $INSTDIR "$PROGRAMFILES32\BS2PRO-Controller"
+    ${If} ${FileExists} "$PROGRAMFILES32\THRM\${PRODUCT_EXECUTABLE}"
+        StrCpy $INSTDIR "$PROGRAMFILES32\THRM"
         DetailPrint "发现已有安装: $INSTDIR"
         Goto found_installation
     ${EndIf}
     
-    # Seventh, check for BS2PRO-Core.exe in common paths
-    ${If} ${FileExists} "$PROGRAMFILES64\${INFO_PRODUCTNAME}\BS2PRO-Core.exe"
+    # Seventh, check for THRM Core.exe in common paths
+    ${If} ${FileExists} "$PROGRAMFILES64\${INFO_PRODUCTNAME}\THRM Core.exe"
         StrCpy $INSTDIR "$PROGRAMFILES64\${INFO_PRODUCTNAME}"
         DetailPrint "发现已有安装 (Core): $INSTDIR"
         Goto found_installation
     ${EndIf}
     
-    ${If} ${FileExists} "$PROGRAMFILES64\BS2PRO-Controller\BS2PRO-Core.exe"
-        StrCpy $INSTDIR "$PROGRAMFILES64\BS2PRO-Controller"
+    ${If} ${FileExists} "$PROGRAMFILES64\THRM\THRM Core.exe"
+        StrCpy $INSTDIR "$PROGRAMFILES64\THRM"
         DetailPrint "发现已有安装 (Core): $INSTDIR"
         Goto found_installation
     ${EndIf}
+
+    ${If} ${FileExists} "$PROGRAMFILES64\BS2PRO-Controller\BS2PRO-Controller.exe"
+        StrCpy $INSTDIR "$PROGRAMFILES64\BS2PRO-Controller"
+        DetailPrint "发现旧版安装 (旧目录-主程序): $INSTDIR"
+        Goto found_legacy_installation
+    ${EndIf}
+
+    ${If} ${FileExists} "$PROGRAMFILES32\BS2PRO-Controller\BS2PRO-Controller.exe"
+        StrCpy $INSTDIR "$PROGRAMFILES32\BS2PRO-Controller"
+        DetailPrint "发现旧版安装 (旧目录-主程序): $INSTDIR"
+        Goto found_legacy_installation
+    ${EndIf}
+
+    ${If} ${FileExists} "$PROGRAMFILES64\BS2PRO-Controller\BS2PRO-Core.exe"
+        StrCpy $INSTDIR "$PROGRAMFILES64\BS2PRO-Controller"
+        DetailPrint "发现旧版安装 (旧目录-Core): $INSTDIR"
+        Goto found_legacy_installation
+    ${EndIf}
+
+    ${If} ${FileExists} "$PROGRAMFILES32\BS2PRO-Controller\BS2PRO-Core.exe"
+        StrCpy $INSTDIR "$PROGRAMFILES32\BS2PRO-Controller"
+        DetailPrint "发现旧版安装 (旧目录-Core): $INSTDIR"
+        Goto found_legacy_installation
+    ${EndIf}
     
     # If no existing installation found, use simple product name for directory
-    # Use BS2PRO-Controller instead of ${INFO_PRODUCTNAME} to ensure consistency
-    StrCpy $INSTDIR "$PROGRAMFILES64\BS2PRO-Controller"
+    # Use THRM as the default install directory
+    StrCpy $INSTDIR "$PROGRAMFILES64\THRM"
     DetailPrint "未发现已有安装,使用默认目录: $INSTDIR"
     Goto end_detection
+
+    found_legacy_installation:
+    StrCpy $LegacyRenameNoticeNeeded "1"
+    Goto found_installation
     
     found_installation:
     DetailPrint "检测到已有安装 - 将执行升级到: $INSTDIR"
@@ -473,16 +521,16 @@ Function StopRunningInstances
     # Try to stop the core service first (it manages the fan control)
     # Use /FI with proper error handling
     ClearErrors
-    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "BS2PRO-Core.exe" /T'
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "THRM Core.exe" /T'
     Pop $0
     Pop $1
     ${If} $0 == 0
-        DetailPrint "已请求关闭 BS2PRO-Core.exe..."
+        DetailPrint "已请求关闭 THRM Core.exe..."
         Sleep 2000
     ${EndIf}
     
     # Force kill if still running (ignore errors)
-    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "BS2PRO-Core.exe" /T'
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "THRM Core.exe" /T'
     Pop $0
     Pop $1
 
@@ -528,7 +576,7 @@ Function StopRunningInstances
     Pop $1
     
     # Stop any bridge processes (ignore errors)
-    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "TempBridge.exe" /T'
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "THRM TempBridge.exe" /T'
     Pop $0
     Pop $1
 
@@ -537,7 +585,7 @@ Function StopRunningInstances
     
     # Remove scheduled task if exists (ignore errors)
     DetailPrint "正在清理计划任务..."
-    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Controller" /f'
+    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "THRM" /f'
     Pop $0
     Pop $1
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Core" /f'
@@ -738,37 +786,42 @@ Section "主程序 (必需)" SEC_MAIN
     SectionIn RO  # Read-only, cannot be deselected
     !insertmacro wails.setShellContext
 
+    StrCpy $0 "0"
+
     # Check if this is an upgrade installation
     ${If} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        StrCpy $0 "1"
         DetailPrint "正在升级: $INSTDIR"
-        
+    ${ElseIf} ${FileExists} "$INSTDIR\THRM Core.exe"
+        StrCpy $0 "1"
+        DetailPrint "正在升级 (发现 THRM Core): $INSTDIR"
+    ${ElseIf} ${FileExists} "$INSTDIR\BS2PRO-Controller.exe"
+        StrCpy $0 "1"
+        StrCpy $LegacyRenameNoticeNeeded "1"
+        DetailPrint "正在升级 (发现旧版主程序): $INSTDIR"
+    ${ElseIf} ${FileExists} "$INSTDIR\BS2PRO-Core.exe"
+        StrCpy $0 "1"
+        StrCpy $LegacyRenameNoticeNeeded "1"
+        DetailPrint "正在升级 (发现旧版 Core): $INSTDIR"
+    ${EndIf}
+
+    ${If} $0 == "1"
         # Backup important files before upgrade
         Call BackupUserData
-        
+
         # Ensure old instances are completely stopped before upgrading
         Call StopRunningInstances
-        
+
         # Clean up old files but preserve user data
         DetailPrint "正在清理旧版本文件..."
         Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        Delete "$INSTDIR\THRM Core.exe"
+        Delete "$INSTDIR\BS2PRO-Controller.exe"
+        Delete "$INSTDIR\BS2PRO-controller.exe"
+        Delete "$INSTDIR\BS2PRO.exe"
         Delete "$INSTDIR\BS2PRO-Core.exe"
         RMDir /r "$INSTDIR\bridge"
         Delete "$INSTDIR\logs\*.log"  # Keep log structure but remove old logs
-    ${ElseIf} ${FileExists} "$INSTDIR\BS2PRO-Core.exe"
-        DetailPrint "正在升级 (发现Core): $INSTDIR"
-        
-        # Backup important files before upgrade
-        Call BackupUserData
-        
-        # Ensure old instances are completely stopped before upgrading
-        Call StopRunningInstances
-        
-        # Clean up old files but preserve user data
-        DetailPrint "正在清理旧版本文件..."
-        Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
-        Delete "$INSTDIR\BS2PRO-Core.exe"
-        RMDir /r "$INSTDIR\bridge"
-        Delete "$INSTDIR\logs\*.log"
     ${Else}
         DetailPrint "全新安装: $INSTDIR"
         
@@ -789,7 +842,7 @@ Section "主程序 (必需)" SEC_MAIN
     
     # Copy core service executable
     DetailPrint "正在安装核心服务..."
-    File "..\..\bin\BS2PRO-Core.exe"
+    File "/oname=THRM Core.exe" "${CORE_EXECUTABLE_SOURCE}"
     
     # Copy bridge directory and its contents
     DetailPrint "正在安装桥接组件..."
@@ -814,13 +867,17 @@ Section "主程序 (必需)" SEC_MAIN
     Call WriteCurrentVersionInfo
     
     DetailPrint "安装完成"
-    
-    # Show completion message
-    ${If} ${FileExists} "$TEMP\bs2pro_config_backup.json"
-        MessageBox MB_OK|MB_ICONINFORMATION "BS2PRO 控制器升级成功！$\n$\n您的设置已保留。$\n$\n注意：完整功能需要管理员权限。"
-        Delete "$TEMP\bs2pro_config_backup.json"  # Clean up backup
+
+    ${If} $LegacyRenameNoticeNeeded == "1"
+        DetailPrint "已完成旧版 BS2Pro Controller 到 THRM 的升级说明与安装。"
+    ${ElseIf} ${FileExists} "$TEMP\bs2pro_config_backup.json"
+        DetailPrint "已完成升级，原有设置已保留。"
     ${Else}
-        MessageBox MB_OK|MB_ICONINFORMATION "BS2PRO 控制器安装成功！$\n$\n注意：完整功能需要管理员权限。"
+        DetailPrint "THRM 安装成功。"
+    ${EndIf}
+
+    ${If} ${FileExists} "$TEMP\bs2pro_config_backup.json"
+        Delete "$TEMP\bs2pro_config_backup.json"  # Clean up backup
     ${EndIf}
 SectionEnd
 
@@ -830,7 +887,7 @@ Section "开机自启动" SEC_AUTOSTART
     
     # First, remove any existing auto-start entries to ensure clean state
     DetailPrint "正在清理现有自启动项..."
-    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Controller" /f'
+    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "THRM" /f'
     Pop $0
     Pop $1
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Core" /f'
@@ -845,8 +902,8 @@ Section "开机自启动" SEC_AUTOSTART
     DetailPrint "正在创建自启动计划任务..."
     
     # Use schtasks to create a task that runs at logon with highest privileges
-    # The task will start BS2PRO-Core.exe with --autostart flag after 15 seconds delay
-    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /create /tn "BS2PRO-Controller" /tr "\"$INSTDIR\BS2PRO-Core.exe\" --autostart" /sc onlogon /delay 0000:15 /rl highest /f'
+    # The task will start THRM Core.exe with --autostart flag after 15 seconds delay
+    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /create /tn "THRM" /tr "\"$INSTDIR\THRM Core.exe\" --autostart" /sc onlogon /delay 0000:15 /rl highest /f'
     Pop $0
     Pop $1
     ${If} $0 == 0
@@ -854,7 +911,7 @@ Section "开机自启动" SEC_AUTOSTART
     ${Else}
         DetailPrint "计划任务创建失败，使用注册表方式..."
         # Fallback: use registry auto-start (will trigger UAC on each login)
-        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "BS2PRO-Controller" '"$INSTDIR\BS2PRO-Core.exe" --autostart'
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "THRM" '"$INSTDIR\THRM Core.exe" --autostart'
         DetailPrint "开机自启动配置成功（注册表）"
     ${EndIf}
 SectionEnd
@@ -976,8 +1033,8 @@ SectionEnd
 
 # Section descriptions
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-    !insertmacro MUI_DESCRIPTION_TEXT ${SEC_MAIN} "BS2PRO 控制器主程序和核心服务文件。"
-    !insertmacro MUI_DESCRIPTION_TEXT ${SEC_AUTOSTART} "系统启动时自动运行 BS2PRO 控制器核心服务。推荐开启。"
+    !insertmacro MUI_DESCRIPTION_TEXT ${SEC_MAIN} "THRM 主程序和核心服务文件。"
+    !insertmacro MUI_DESCRIPTION_TEXT ${SEC_AUTOSTART} "系统启动时自动运行 THRM Core。推荐开启。"
     !insertmacro MUI_DESCRIPTION_TEXT ${SEC_PAWNIO} "安装 PawnIO 驱动，PawnIO将用于获取硬件相关信息。"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
@@ -988,12 +1045,12 @@ Section "uninstall"
     DetailPrint "正在停止运行中的进程..."
     
     # Stop core service first (ignore errors)
-    DetailPrint "正在停止 BS2PRO-Core.exe..."
-    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "BS2PRO-Core.exe" /T'
+    DetailPrint "正在停止 THRM Core.exe..."
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "THRM Core.exe" /T'
     Pop $0
     Pop $1
     Sleep 1000
-    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "BS2PRO-Core.exe" /T'
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "THRM Core.exe" /T'
     Pop $0
     Pop $1
     
@@ -1019,12 +1076,12 @@ Section "uninstall"
     Pop $1
     
     # Stop bridge processes (ignore errors)
-    DetailPrint "正在停止 TempBridge.exe..."
-    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "TempBridge.exe" /T'
+    DetailPrint "正在停止 THRM TempBridge.exe..."
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "THRM TempBridge.exe" /T'
     Pop $0
     Pop $1
     Sleep 500
-    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "TempBridge.exe" /T'
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "THRM TempBridge.exe" /T'
     Pop $0
     Pop $1
 
@@ -1035,7 +1092,7 @@ Section "uninstall"
     DetailPrint "正在移除自启动项..."
     
     # Remove scheduled task (ignore errors if not exists)
-    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Controller" /f'
+    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "THRM" /f'
     Pop $0
     Pop $1
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Core" /f'
@@ -1049,7 +1106,7 @@ Section "uninstall"
     DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "BS2PRO-Core"
     
     # Remove from startup folder if exists
-    Delete "$SMSTARTUP\BS2PRO-Controller.lnk"
+    Delete "$SMSTARTUP\THRM.lnk"
     Delete "$SMSTARTUP\BS2PRO-Core.lnk"
     
     # Wait for processes to fully terminate
@@ -1058,14 +1115,14 @@ Section "uninstall"
     # Remove application data directories
     DetailPrint "正在移除应用数据..."
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
-    RMDir /r "$APPDATA\BS2PRO-Controller"
-    RMDir /r "$LOCALAPPDATA\BS2PRO-Controller"
-    RMDir /r "$TEMP\BS2PRO-Controller"
+    RMDir /r "$APPDATA\THRM"
+    RMDir /r "$LOCALAPPDATA\THRM"
+    RMDir /r "$TEMP\THRM"
 
     # Remove installation directory and all contents
     DetailPrint "正在移除安装文件..."
     
-    # Remove bridge directory (contains TempBridge.exe and related files)
+    # Remove bridge directory (contains THRM TempBridge.exe and related files)
     DetailPrint "正在删除桥接组件..."
     RMDir /r "$INSTDIR\bridge"
     

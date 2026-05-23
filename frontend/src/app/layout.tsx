@@ -4,6 +4,7 @@ import "./globals.css";
 import OverlayScrollContainer from "./components/OverlayScrollContainer";
 import SystemThemeSync from "./components/SystemThemeSync";
 import { Toaster } from "@/components/ui/sonner";
+import { BRAND } from "./lib/brand";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BS2PRO Controller",
-  description: "BS2PRO 压风控制器桌面端",
+  title: BRAND.name,
+  description: BRAND.description,
 };
 
 export default function RootLayout({
@@ -26,7 +27,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="zh-CN" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
