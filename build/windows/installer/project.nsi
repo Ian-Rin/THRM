@@ -45,6 +45,58 @@
 # Include .NET Framework Detection
 !include "DotNetChecker.nsh"
 
+!macro TryInstallDirCandidate CANDIDATE SOURCE LEGACY
+    ${If} "${CANDIDATE}" != ""
+        ${If} ${FileExists} "${CANDIDATE}\${PRODUCT_EXECUTABLE}"
+            StrCpy $INSTDIR "${CANDIDATE}"
+            DetailPrint "发现已有安装 (${SOURCE}-主程序): $INSTDIR"
+            ${If} "${LEGACY}" == "1"
+                Goto found_legacy_installation
+            ${Else}
+                Goto found_installation
+            ${EndIf}
+        ${EndIf}
+        ${If} ${FileExists} "${CANDIDATE}\THRM Core.exe"
+            StrCpy $INSTDIR "${CANDIDATE}"
+            DetailPrint "发现已有安装 (${SOURCE}-Core): $INSTDIR"
+            ${If} "${LEGACY}" == "1"
+                Goto found_legacy_installation
+            ${Else}
+                Goto found_installation
+            ${EndIf}
+        ${EndIf}
+        ${If} ${FileExists} "${CANDIDATE}\BS2PRO-Controller.exe"
+            StrCpy $INSTDIR "${CANDIDATE}"
+            DetailPrint "发现旧版安装 (${SOURCE}-旧主程序): $INSTDIR"
+            Goto found_legacy_installation
+        ${EndIf}
+        ${If} ${FileExists} "${CANDIDATE}\BS2PRO-controller.exe"
+            StrCpy $INSTDIR "${CANDIDATE}"
+            DetailPrint "发现旧版安装 (${SOURCE}-旧主程序): $INSTDIR"
+            Goto found_legacy_installation
+        ${EndIf}
+        ${If} ${FileExists} "${CANDIDATE}\BS2PRO.exe"
+            StrCpy $INSTDIR "${CANDIDATE}"
+            DetailPrint "发现旧版安装 (${SOURCE}-旧主程序): $INSTDIR"
+            Goto found_legacy_installation
+        ${EndIf}
+        ${If} ${FileExists} "${CANDIDATE}\BS2PRO-Core.exe"
+            StrCpy $INSTDIR "${CANDIDATE}"
+            DetailPrint "发现旧版安装 (${SOURCE}-旧 Core): $INSTDIR"
+            Goto found_legacy_installation
+        ${EndIf}
+        ${If} ${FileExists} "${CANDIDATE}\uninstall.exe"
+            StrCpy $INSTDIR "${CANDIDATE}"
+            DetailPrint "发现已有安装 (${SOURCE}-卸载器): $INSTDIR"
+            ${If} "${LEGACY}" == "1"
+                Goto found_legacy_installation
+            ${Else}
+                Goto found_installation
+            ${EndIf}
+        ${EndIf}
+    ${EndIf}
+!macroend
+
 # Built-in PawnIO version for upgrade/repair decisions.
 # You can override this at build time with: -DPAWNIO_BUNDLED_VERSION=x.y.z
 !ifndef PAWNIO_BUNDLED_VERSION
@@ -119,10 +171,7 @@ Function .onInit
        Abort
    ${EndIf}
    
-   # Stop running instances first to avoid file locks
-   Call StopRunningInstances
-   
-   # Check for existing installation and set install directory
+    # Check for existing installation and set install directory
    Call DetectExistingInstallation
 FunctionEnd
 
@@ -152,6 +201,22 @@ Function CleanLegacyRegistryKeys
         DetailPrint "发现重复注册表键: BS2PRO-controllerBS2PRO-controller"
         DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-controllerBS2PRO-controller"
         DetailPrint "已删除重复注册表键"
+    ${EndIf}
+
+    # Check and remove BS2PRO-ControllerBS2PRO-Controller
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-ControllerBS2PRO-Controller" "UninstallString"
+    ${If} $R0 != ""
+        DetailPrint "发现重复注册表键: BS2PRO-ControllerBS2PRO-Controller"
+        DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-ControllerBS2PRO-Controller"
+        DetailPrint "已删除重复注册表键"
+    ${EndIf}
+
+    # Check and remove BS2PRO-Controller (actual legacy product key)
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-Controller" "UninstallString"
+    ${If} $R0 != ""
+        DetailPrint "发现旧版注册表键: BS2PRO-Controller"
+        DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-Controller"
+        DetailPrint "已删除旧版注册表键"
     ${EndIf}
     
     # Check and remove TIANLI0BS2PRO-Controller
@@ -189,6 +254,12 @@ Function DetectExistingInstallation
         ReadRegStr $R2 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-controllerBS2PRO-controller" "DisplayVersion"
     ${EndIf}
     ${If} $R2 == ""
+        ReadRegStr $R2 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-ControllerBS2PRO-Controller" "DisplayVersion"
+    ${EndIf}
+    ${If} $R2 == ""
+        ReadRegStr $R2 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-Controller" "DisplayVersion"
+    ${EndIf}
+    ${If} $R2 == ""
         ReadRegStr $R2 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TIANLI0BS2PRO-Controller" "DisplayVersion"
     ${EndIf}
     ${If} $R2 == ""
@@ -205,6 +276,7 @@ Function DetectExistingInstallation
     
     # Method 1: Try current registry key (THRM)
     ReadRegStr $R0 HKLM "${UNINST_KEY}" "InstallLocation"
+    !insertmacro TryInstallDirCandidate "$R0" "正确键-安装位置" "0"
     ${If} $R0 != ""
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R0
@@ -224,6 +296,7 @@ Function DetectExistingInstallation
         Call TrimQuotes
         Pop $R0
         ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "正确键-卸载路径" "0"
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现已有安装 (从正确的注册表键): $INSTDIR"
@@ -236,9 +309,32 @@ Function DetectExistingInstallation
         ${EndIf}
     ${EndIf}
     
-    # Method 2: Check legacy/duplicate registry keys to find old installation
+    # Method 2: Check direct legacy registry key (BS2PRO-Controller)
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-Controller" "InstallLocation"
+    !insertmacro TryInstallDirCandidate "$R0" "旧版键-安装位置" "1"
+
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-Controller" "UninstallString"
+    ${If} $R0 != ""
+        Push $R0
+        Call TrimQuotes
+        Pop $R0
+        ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "旧版键-卸载路径" "1"
+    ${EndIf}
+
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-Controller" "DisplayIcon"
+    ${If} $R0 != ""
+        Push $R0
+        Call TrimQuotes
+        Pop $R0
+        ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "旧版键-图标路径" "1"
+    ${EndIf}
+
+    # Method 3: Check legacy/duplicate registry keys to find old installation
     # BS2PRO-controllerBS2PRO-controller (the current problematic key)
     ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-controllerBS2PRO-controller" "InstallLocation"
+    !insertmacro TryInstallDirCandidate "$R0" "重复键-安装位置" "1"
     ${If} $R0 != ""
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R0
@@ -258,6 +354,7 @@ Function DetectExistingInstallation
         Call TrimQuotes
         Pop $R0
         ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "重复键-卸载路径" "1"
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (重复键): $INSTDIR"
@@ -277,6 +374,7 @@ Function DetectExistingInstallation
         Call TrimQuotes
         Pop $R0
         ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "重复键-图标路径" "1"
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (从图标路径): $INSTDIR"
@@ -288,9 +386,32 @@ Function DetectExistingInstallation
             Goto found_legacy_installation
         ${EndIf}
     ${EndIf}
+
+    # Method 3b: Check BS2PRO-ControllerBS2PRO-Controller (case-variant duplicate key)
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-ControllerBS2PRO-Controller" "InstallLocation"
+    !insertmacro TryInstallDirCandidate "$R0" "大小写重复键-安装位置" "1"
+
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-ControllerBS2PRO-Controller" "UninstallString"
+    ${If} $R0 != ""
+        Push $R0
+        Call TrimQuotes
+        Pop $R0
+        ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "大小写重复键-卸载路径" "1"
+    ${EndIf}
+
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BS2PRO-ControllerBS2PRO-Controller" "DisplayIcon"
+    ${If} $R0 != ""
+        Push $R0
+        Call TrimQuotes
+        Pop $R0
+        ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "大小写重复键-图标路径" "1"
+    ${EndIf}
     
-    # Method 3: Check TIANLI0BS2PRO-Controller (old company+product format)
+    # Method 4: Check TIANLI0BS2PRO-Controller (old company+product format)
     ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TIANLI0BS2PRO-Controller" "InstallLocation"
+    !insertmacro TryInstallDirCandidate "$R0" "旧格式键-安装位置" "1"
     ${If} $R0 != ""
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R0
@@ -310,6 +431,7 @@ Function DetectExistingInstallation
         Call TrimQuotes
         Pop $R0
         ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "旧格式键-卸载路径" "1"
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (旧格式键): $INSTDIR"
@@ -322,8 +444,9 @@ Function DetectExistingInstallation
         ${EndIf}
     ${EndIf}
     
-    # Method 4: Check TIANLI0BS2PRO (wails.json generates this)
+    # Method 5: Check TIANLI0BS2PRO (wails.json generates this)
     ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TIANLI0BS2PRO" "InstallLocation"
+    !insertmacro TryInstallDirCandidate "$R0" "TIANLI0BS2PRO-安装位置" "1"
     ${If} $R0 != ""
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R0
@@ -343,6 +466,7 @@ Function DetectExistingInstallation
         Call TrimQuotes
         Pop $R0
         ${GetParent} $R0 $R1
+        !insertmacro TryInstallDirCandidate "$R1" "TIANLI0BS2PRO-卸载路径" "1"
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现旧版安装 (TIANLI0BS2PRO): $INSTDIR"
@@ -364,6 +488,7 @@ Function DetectExistingInstallation
         Pop $R0
         
         ${GetParent} $R0 $R1  # Get parent directory
+        !insertmacro TryInstallDirCandidate "$R1" "正确键-图标路径" "0"
         ${If} ${FileExists} "$R1\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R1
             DetailPrint "发现已有安装 (从图标): $INSTDIR"
@@ -378,6 +503,7 @@ Function DetectExistingInstallation
     
     # Third, try to read InstallLocation from registry
     ReadRegStr $R0 HKLM "${UNINST_KEY}" "InstallLocation"
+    !insertmacro TryInstallDirCandidate "$R0" "安装位置" "0"
     ${If} $R0 != ""
         ${If} ${FileExists} "$R0\${PRODUCT_EXECUTABLE}"
             StrCpy $INSTDIR $R0
@@ -410,6 +536,11 @@ Function DetectExistingInstallation
         DetailPrint "发现已有安装 (旧版路径): $INSTDIR"
         Goto found_installation
     ${EndIf}
+
+    !insertmacro TryInstallDirCandidate "$PROGRAMFILES64\TIANLI0\BS2PRO-Controller" "旧公司目录" "1"
+    !insertmacro TryInstallDirCandidate "$PROGRAMFILES32\TIANLI0\BS2PRO-Controller" "旧公司目录" "1"
+    !insertmacro TryInstallDirCandidate "$PROGRAMFILES64\BS2PRO-controller" "旧目录" "1"
+    !insertmacro TryInstallDirCandidate "$PROGRAMFILES32\BS2PRO-controller" "旧目录" "1"
     
     # Sixth, try alternative common paths
     ${If} ${FileExists} "$PROGRAMFILES64\THRM\${PRODUCT_EXECUTABLE}"
@@ -514,7 +645,7 @@ Function TrimQuotes
     Exch $R0 ; Trimmed string
 FunctionEnd
 
-# Function to stop running instances and services
+# Function to stop running application instances
 Function StopRunningInstances
     DetailPrint "正在检查运行中的进程..."
     
@@ -531,6 +662,20 @@ Function StopRunningInstances
     
     # Force kill if still running (ignore errors)
     nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "THRM Core.exe" /T'
+    Pop $0
+    Pop $1
+
+    # Backward compatibility: stop legacy core service process
+    ClearErrors
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "BS2PRO-Core.exe" /T'
+    Pop $0
+    Pop $1
+    ${If} $0 == 0
+        DetailPrint "已请求关闭 BS2PRO-Core.exe..."
+        Sleep 2000
+    ${EndIf}
+
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "BS2PRO-Core.exe" /T'
     Pop $0
     Pop $1
 
@@ -579,13 +724,16 @@ Function StopRunningInstances
     nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "THRM TempBridge.exe" /T'
     Pop $0
     Pop $1
-
-    # Stop and remove kernel driver service that may lock TempBridge.sys
-    Call StopBridgeDriver
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "TempBridge.exe" /T'
+    Pop $0
+    Pop $1
     
     # Remove scheduled task if exists (ignore errors)
     DetailPrint "正在清理计划任务..."
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "THRM" /f'
+    Pop $0
+    Pop $1
+    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Controller" /f'
     Pop $0
     Pop $1
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Core" /f'
@@ -597,119 +745,6 @@ Function StopRunningInstances
     Sleep 2000
     
     DetailPrint "进程清理完成"
-FunctionEnd
-
-# Function to stop and remove TempBridge kernel driver service
-Function StopBridgeDriver
-    DetailPrint "正在停止驱动服务 R0TempBridge..."
-
-    # Stop running driver service (ignore failures if service does not exist)
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0TempBridge"'
-    Pop $0
-    Pop $1
-    Sleep 1200
-
-    # Delete service entry to release lock for overwrite during upgrade
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0TempBridge"'
-    Pop $0
-    Pop $1
-
-    # Compatibility: other possible driver service names used by hardware monitor libs
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0LibreHardwareMonitor"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0LibreHardwareMonitor"'
-    Pop $0
-    Pop $1
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0WinRing0"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0WinRing0"'
-    Pop $0
-    Pop $1
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "WinRing0_1_2_0"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "WinRing0_1_2_0"'
-    Pop $0
-    Pop $1
-
-    # PawnIO service cleanup (for upgrades / failed previous installs)
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "PawnIO"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "PawnIO"'
-    Pop $0
-    Pop $1
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0PawnIO"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0PawnIO"'
-    Pop $0
-    Pop $1
-    Sleep 800
-
-    # Best effort delete of driver file in current install dir
-    ${If} ${FileExists} "$INSTDIR\bridge\TempBridge.sys"
-        Delete /REBOOTOK "$INSTDIR\bridge\TempBridge.sys"
-    ${EndIf}
-FunctionEnd
-
-# Uninstall-side function (NSIS requires un.* functions in uninstall section)
-Function un.StopBridgeDriver
-    DetailPrint "正在停止驱动服务 R0TempBridge..."
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0TempBridge"'
-    Pop $0
-    Pop $1
-    Sleep 1200
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0TempBridge"'
-    Pop $0
-    Pop $1
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0LibreHardwareMonitor"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0LibreHardwareMonitor"'
-    Pop $0
-    Pop $1
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0WinRing0"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0WinRing0"'
-    Pop $0
-    Pop $1
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "WinRing0_1_2_0"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "WinRing0_1_2_0"'
-    Pop $0
-    Pop $1
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "PawnIO"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "PawnIO"'
-    Pop $0
-    Pop $1
-
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0PawnIO"'
-    Pop $0
-    Pop $1
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0PawnIO"'
-    Pop $0
-    Pop $1
-    Sleep 800
-
-    ${If} ${FileExists} "$INSTDIR\bridge\TempBridge.sys"
-        Delete /REBOOTOK "$INSTDIR\bridge\TempBridge.sys"
-    ${EndIf}
 FunctionEnd
 
 # Function to backup user data before upgrade
@@ -777,9 +812,7 @@ Function UninstallPawnIO
         DetailPrint "未找到 PawnIO_setup.exe，跳过卸载程序调用"
     ${EndIf}
 
-    # 卸载后再做一次驱动服务清理，避免升级残留
-    Call StopBridgeDriver
-    Sleep 1000
+    DetailPrint "PawnIO 卸载流程结束"
 FunctionEnd
 
 Section "主程序 (必需)" SEC_MAIN
@@ -799,10 +832,24 @@ Section "主程序 (必需)" SEC_MAIN
         StrCpy $0 "1"
         StrCpy $LegacyRenameNoticeNeeded "1"
         DetailPrint "正在升级 (发现旧版主程序): $INSTDIR"
+    ${ElseIf} ${FileExists} "$INSTDIR\BS2PRO-controller.exe"
+        StrCpy $0 "1"
+        StrCpy $LegacyRenameNoticeNeeded "1"
+        DetailPrint "正在升级 (发现旧版主程序): $INSTDIR"
+    ${ElseIf} ${FileExists} "$INSTDIR\BS2PRO.exe"
+        StrCpy $0 "1"
+        StrCpy $LegacyRenameNoticeNeeded "1"
+        DetailPrint "正在升级 (发现旧版主程序): $INSTDIR"
     ${ElseIf} ${FileExists} "$INSTDIR\BS2PRO-Core.exe"
         StrCpy $0 "1"
         StrCpy $LegacyRenameNoticeNeeded "1"
         DetailPrint "正在升级 (发现旧版 Core): $INSTDIR"
+    ${ElseIf} ${FileExists} "$INSTDIR\uninstall.exe"
+        StrCpy $0 "1"
+        DetailPrint "正在升级 (发现卸载器): $INSTDIR"
+    ${ElseIf} $LegacyRenameNoticeNeeded == "1"
+        StrCpy $0 "1"
+        DetailPrint "正在升级 (沿用旧版安装目录): $INSTDIR"
     ${EndIf}
 
     ${If} $0 == "1"
@@ -888,6 +935,9 @@ Section "开机自启动" SEC_AUTOSTART
     # First, remove any existing auto-start entries to ensure clean state
     DetailPrint "正在清理现有自启动项..."
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "THRM" /f'
+    Pop $0
+    Pop $1
+    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Controller" /f'
     Pop $0
     Pop $1
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Core" /f'
@@ -979,22 +1029,6 @@ Section "安装 PawnIO (必需)" SEC_PAWNIO
         Call UninstallPawnIO
     ${EndIf}
 
-    # Pre-clean possible stale driver service state (avoids driver install error 1072)
-    DetailPrint "正在清理旧的 PawnIO 驱动服务..."
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "PawnIO"'
-    Pop $4
-    Pop $5
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "PawnIO"'
-    Pop $4
-    Pop $5
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "R0PawnIO"'
-    Pop $4
-    Pop $5
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "R0PawnIO"'
-    Pop $4
-    Pop $5
-    Sleep 1200
-
     DetailPrint "正在静默安装 PawnIO（最多等待 60 秒）..."
     nsExec::ExecToStack /TIMEOUT=60000 '"$TEMP\BS2PRO-PawnIO\PawnIO_setup.exe" -install -silent'
     Pop $0
@@ -1053,6 +1087,15 @@ Section "uninstall"
     nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "THRM Core.exe" /T'
     Pop $0
     Pop $1
+
+    DetailPrint "正在停止 BS2PRO-Core.exe..."
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "BS2PRO-Core.exe" /T'
+    Pop $0
+    Pop $1
+    Sleep 1000
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "BS2PRO-Core.exe" /T'
+    Pop $0
+    Pop $1
     
     # Stop main application (ignore errors)
     DetailPrint "正在停止 ${PRODUCT_EXECUTABLE}..."
@@ -1085,14 +1128,25 @@ Section "uninstall"
     Pop $0
     Pop $1
 
-    # Stop and remove kernel driver service to release TempBridge.sys lock
-    Call un.StopBridgeDriver
+    DetailPrint "正在停止 TempBridge.exe..."
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /IM "TempBridge.exe" /T'
+    Pop $0
+    Pop $1
+    Sleep 500
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM "TempBridge.exe" /T'
+    Pop $0
+    Pop $1
+
+    # PawnIO owns the shared R0 driver lifecycle; do not stop/delete it from THRM uninstall.
     
     # Remove auto-start entries
     DetailPrint "正在移除自启动项..."
     
     # Remove scheduled task (ignore errors if not exists)
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "THRM" /f'
+    Pop $0
+    Pop $1
+    nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Controller" /f'
     Pop $0
     Pop $1
     nsExec::ExecToStack '"$SYSDIR\schtasks.exe" /delete /tn "BS2PRO-Core" /f'
