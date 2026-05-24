@@ -89,10 +89,7 @@ const (
 )
 
 func systemResumeDetectionThreshold(expectedInterval time.Duration) time.Duration {
-	threshold := expectedInterval * 6
-	if threshold < systemResumeDetectionFloor {
-		threshold = systemResumeDetectionFloor
-	}
+	threshold := max(expectedInterval*6, systemResumeDetectionFloor)
 	if threshold > systemResumeDetectionCeiling {
 		threshold = systemResumeDetectionCeiling
 	}
