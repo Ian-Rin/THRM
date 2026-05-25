@@ -499,10 +499,12 @@ export default function DeviceStatus({
   };
 
   const normalizedProductId = deviceProductId?.trim().toUpperCase() ?? '';
-  const isProModel = deviceModel === 'BS2PRO' || normalizedProductId === '0X1002';
+  const isBs3ProModel = deviceModel === 'BS3PRO' || normalizedProductId === '0X1004';
+  const isBs2ProModel = deviceModel === 'BS2PRO' || normalizedProductId === '0X1002';
+  const isProModel = isBs2ProModel || isBs3ProModel;
   const isBs2Model = deviceModel === 'BS2' || normalizedProductId === '0X1001';
   const isBs1Model = deviceModel === 'BS1';
-  const deviceModelName = isBs1Model ? 'BS1' : isProModel ? 'BS2 PRO' : isBs2Model ? 'BS2' : '未知设备';
+  const deviceModelName = isBs1Model ? 'BS1' : isBs3ProModel ? 'BS3 PRO' : isBs2ProModel ? 'BS2 PRO' : isBs2Model ? 'BS2' : '未知设备';
   const deviceImageSrc = isBs1Model ? '/bs2.png' : isBs2Model ? '/bs2.png' : '/bs2pro.png';
   const modeTitle = config.autoControl ? '智能控制' : config.customSpeedEnabled ? '固定转速' : '手动策略';
   const modeDesc = config.autoControl

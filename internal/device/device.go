@@ -15,10 +15,12 @@ import (
 const (
 	// VendorID 设备厂商ID
 	VendorID = 0x37D7
-	// ProductID1 产品ID 1 BS2PRO
-	ProductID1 = 0x1002
-	// ProductID2 产品ID 2 BS2
-	ProductID2 = 0x1001
+	// ProductIDBS2PRO BS2PRO 产品ID
+	ProductIDBS2PRO = 0x1002
+	// ProductIDBS2 BS2 产品ID
+	ProductIDBS2 = 0x1001
+	// ProductIDBS3PRO BS3PRO 产品ID
+	ProductIDBS3PRO = 0x1004
 )
 
 // Manager 设备管理器
@@ -64,7 +66,7 @@ func (m *Manager) Exit() error {
 	return hid.Exit()
 }
 
-// Connect 连接设备（先尝试 HID BS2/BS2PRO，再尝试 BLE BS1）
+// Connect 连接设备（先尝试 HID BS2/BS2PRO/BS3PRO，再尝试 BLE BS1）
 func (m *Manager) Connect() (bool, map[string]string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -73,8 +75,8 @@ func (m *Manager) Connect() (bool, map[string]string) {
 		return true, nil
 	}
 
-	// 先尝试 HID 连接 (BS2/BS2PRO)
-	productIDs := []uint16{ProductID1, ProductID2}
+	// 先尝试 HID 连接 (BS2/BS2PRO/BS3PRO)
+	productIDs := []uint16{ProductIDBS2PRO, ProductIDBS3PRO, ProductIDBS2}
 	var device *hid.Device
 	var err error
 
@@ -93,15 +95,18 @@ func (m *Manager) Connect() (bool, map[string]string) {
 	}
 
 	if err == nil && device != nil {
-		// HID 连接成功 (BS2/BS2PRO)
+		// HID 连接成功 (BS2/BS2PRO/BS3PRO)
 		m.device = device
 		m.isConnected = true
 		m.productID = connectedProductID
 		m.deviceType = types.DeviceTypeHID
 
 		modelName := "BS2PRO"
-		if connectedProductID == ProductID2 {
+		switch connectedProductID {
+		case ProductIDBS2:
 			modelName = "BS2"
+		case ProductIDBS3PRO:
+			modelName = "BS3PRO"
 		}
 
 		// 获取设备信息
@@ -218,11 +223,14 @@ func (m *Manager) GetModelName() string {
 		return "BS1"
 	}
 	productID := m.productID
-	if productID == ProductID2 {
+	if productID == ProductIDBS2 {
 		return "BS2"
 	}
-	if productID == ProductID1 {
+	if productID == ProductIDBS2PRO {
 		return "BS2PRO"
+	}
+	if productID == ProductIDBS3PRO {
+		return "BS3PRO"
 	}
 	return "Unknown"
 }

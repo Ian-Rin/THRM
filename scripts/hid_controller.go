@@ -140,16 +140,24 @@ func main() {
 		}
 	}()
 
-	// 目标设备的厂商ID和产品ID
-	vendorID := uint16(0x37D7)  // 厂商ID: 0x37D7 (corrected from 0x137D7)
-	productID := uint16(0x1002) // 产品ID: 0x1002
+	// 目标设备的厂商ID和候选产品ID
+	vendorID := uint16(0x37D7)
+	productIDs := []uint16{0x1004, 0x1002}
+	var device *hid.Device
+	var connectedProductID uint16
 
-	fmt.Printf("正在连接设备 - 厂商ID: 0x%04X, 产品ID: 0x%04X\n", vendorID, productID)
-
-	// 直接打开第一个匹配的设备，无需枚举
-	device, err := hid.OpenFirst(vendorID, productID)
-	if err != nil {
+	for _, productID := range productIDs {
+		fmt.Printf("正在连接设备 - 厂商ID: 0x%04X, 产品ID: 0x%04X\n", vendorID, productID)
+		device, err = hid.OpenFirst(vendorID, productID)
+		if err == nil {
+			connectedProductID = productID
+			break
+		}
 		fmt.Printf("打开设备失败: %v\n", err)
+	}
+
+	if device == nil {
+		fmt.Println("未找到可连接的 BS2PRO/BS3PRO 设备")
 		return
 	}
 	defer func() {
@@ -158,7 +166,7 @@ func main() {
 		}
 	}()
 
-	fmt.Println("设备连接成功！")
+	fmt.Printf("设备连接成功！产品ID: 0x%04X\n", connectedProductID)
 
 	// 获取设备信息
 	deviceInfo, err := device.GetDeviceInfo()
