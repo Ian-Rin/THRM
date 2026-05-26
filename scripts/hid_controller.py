@@ -372,10 +372,10 @@ class BS2PROHIDController:
     def set_power_on_start(self, enabled: bool) -> bool:
         """设置通电自启动"""
         if enabled:
-            command = "5aa50c030211000000000000000000000000000000000000"
+            command = "5aa50c030110000000000000000000000000000000000000"
             print("开启通电自启动")
         else:
-            command = "5aa50c030110000000000000000000000000000000000000"
+            command = "5aa50c030211000000000000000000000000000000000000"
             print("关闭通电自启动")
         return self.send_hex_command(command)
 

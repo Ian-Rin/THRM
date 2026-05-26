@@ -2290,14 +2290,14 @@ func (a *CoreApp) startTemperatureMonitoring() {
 					}
 				}
 
-				deltaRPM := targetRPM - prevTargetRPM
-				if deltaRPM < 0 {
-					deltaRPM = -deltaRPM
-				}
-
-				if targetRPM >= 0 && (prevTargetRPM < 0 || deltaRPM >= smartCfg.MinRPMChange || (targetRPM == 0 && prevTargetRPM > 0)) {
-					a.deviceManager.SetFanSpeed(targetRPM)
-					lastTargetRPM = targetRPM
+				fanData := a.deviceManager.GetCurrentFanData()
+				if shouldSendTargetRPM(targetRPM, prevTargetRPM, smartCfg.MinRPMChange, fanData) {
+					if a.deviceManager.SetFanSpeed(targetRPM) {
+						lastTargetRPM = targetRPM
+					} else {
+						lastTargetRPM = -1
+						a.logError("智能控温转速下发失败，将在下个周期重试: %d RPM", targetRPM)
+					}
 				}
 
 				if smartCfg.Learning && !spikeSuppressed {
@@ -2358,6 +2358,31 @@ func temperatureMonitorInterval(updateRateSeconds int) time.Duration {
 		updateRateSeconds = 1
 	}
 	return time.Duration(updateRateSeconds) * time.Second
+}
+
+func shouldSendTargetRPM(targetRPM, prevTargetRPM, minRPMChange int, fanData *types.FanData) bool {
+	if targetRPM <= 0 {
+		return false
+	}
+	if prevTargetRPM < 0 {
+		return true
+	}
+	if absRPMDelta(targetRPM, prevTargetRPM) >= minRPMChange {
+		return true
+	}
+	if fanData == nil {
+		return false
+	}
+	deviceTargetRPM := int(fanData.TargetRPM)
+	return deviceTargetRPM == 0 || absRPMDelta(targetRPM, deviceTargetRPM) >= minRPMChange
+}
+
+func absRPMDelta(a, b int) int {
+	delta := a - b
+	if delta < 0 {
+		return -delta
+	}
+	return delta
 }
 
 // startHealthMonitoring 启动健康监控
