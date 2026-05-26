@@ -55,7 +55,7 @@ type CoreApp struct {
 
 	// 状态
 	isConnected             bool
-	monitoringTemp          bool
+	monitoringTemp          atomic.Bool
 	currentTemp             types.TemperatureData
 	lastDeviceMode          string
 	userSetAutoControl      bool
@@ -137,7 +137,6 @@ func NewCoreApp(debugMode, isAutoStart bool) *CoreApp {
 		pluginManager:      pluginMgr,
 		logger:             customLogger,
 		isConnected:        false,
-		monitoringTemp:     false,
 		stopMonitoring:     make(chan bool, 1),
 		lastDeviceMode:     "",
 		userSetAutoControl: false,
@@ -1255,7 +1254,7 @@ func (a *CoreApp) GetDeviceStatus() map[string]any {
 
 	return map[string]any{
 		"connected":   a.isConnected,
-		"monitoring":  a.monitoringTemp,
+		"monitoring":  a.monitoringTemp.Load(),
 		"currentData": a.deviceManager.GetCurrentFanData(),
 		"temperature": a.currentTemp,
 		"productId":   productIDHex,
@@ -1872,7 +1871,7 @@ func (a *CoreApp) GetDebugInfo() map[string]any {
 		"isConnected":        a.isConnected,
 		"legionFnQSupported": a.legionFnQSupported.Load(),
 		"guiLastResponse":    time.Unix(atomic.LoadInt64(&a.guiLastResponse), 0).Format("2006-01-02 15:04:05"),
-		"monitoringTemp":     a.monitoringTemp,
+		"monitoringTemp":     a.monitoringTemp.Load(),
 		"autoStartLaunch":    a.isAutoStartLaunch,
 		"hasGUIClients":      a.ipcServer != nil && a.ipcServer.HasClients(),
 	}
@@ -1914,7 +1913,7 @@ func (a *CoreApp) SetDebugMode(enabled bool) error {
 }
 
 func (a *CoreApp) stopTemperatureMonitoring() {
-	if !a.monitoringTemp {
+	if !a.monitoringTemp.Load() {
 		return
 	}
 
@@ -1926,7 +1925,8 @@ func (a *CoreApp) stopTemperatureMonitoring() {
 
 // startTemperatureMonitoring 开始温度监控
 func (a *CoreApp) startTemperatureMonitoring() {
-	if a.monitoringTemp {
+	// CAS：原子地从 false 翻到 true，确保 Start/ConnectDevice 并发调用时只有一条循环启动。
+	if !a.monitoringTemp.CompareAndSwap(false, true) {
 		return
 	}
 
@@ -1935,8 +1935,6 @@ func (a *CoreApp) startTemperatureMonitoring() {
 	case <-a.stopMonitoring:
 	default:
 	}
-
-	a.monitoringTemp = true
 
 	// 注意：不在此处立即调用 EnterAutoMode，因为在启动时温度数据（桥接程序）可能尚未就绪。
 	// 如果在温度读取成功之前切换到软件控制模式，设备将不会收到转速指令，导致风扇停转。
@@ -1967,10 +1965,10 @@ func (a *CoreApp) startTemperatureMonitoring() {
 	lastLearningSave := time.Now()
 	lastMonitorTick := time.Now()
 
-	for a.monitoringTemp {
+	for a.monitoringTemp.Load() {
 		select {
 		case <-a.stopMonitoring:
-			a.monitoringTemp = false
+			a.monitoringTemp.Store(false)
 			return
 		case <-time.After(updateInterval):
 			now := time.Now()

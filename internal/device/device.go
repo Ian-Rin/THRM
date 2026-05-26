@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
@@ -50,7 +51,7 @@ type Manager struct {
 	deviceType     string // "hid" 或 "ble"
 	mutex          sync.RWMutex
 	logger         types.Logger
-	currentFanData *types.FanData
+	currentFanData atomic.Pointer[types.FanData]
 
 	// BLE 管理器 (BS1)
 	bleManager *BLEManager
@@ -58,6 +59,11 @@ type Manager struct {
 	// 回调函数
 	onFanDataUpdate func(data *types.FanData)
 	onDisconnect    func()
+
+	// lightCmdBuf 是发送灯效命令时复用的 65 字节缓冲。
+	// Why: 一次设灯效要发 30+ 帧，旧实现每帧 append + make，~35 次堆分配。
+	// 该缓冲只在持有 m.mutex 的灯效命令路径上使用，是线程安全的。
+	lightCmdBuf [65]byte
 }
 
 // NewManager 创建新的设备管理器
@@ -251,27 +257,25 @@ func (m *Manager) IsBS1() bool {
 
 // GetCurrentFanData 获取当前风扇数据
 func (m *Manager) GetCurrentFanData() *types.FanData {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-
-	if m.deviceType == types.DeviceTypeBLE {
+	if m.GetDeviceType() == types.DeviceTypeBLE {
 		return m.bleManager.GetCurrentFanData()
 	}
-	return m.currentFanData
+	return m.currentFanData.Load()
 }
 
 // monitorDeviceData 监控设备数据
 func (m *Manager) monitorDeviceData() {
 	m.mutex.RLock()
-	if !m.isConnected || m.device == nil {
-		m.mutex.RUnlock()
-		return
-	}
+	device := m.device
+	connected := m.isConnected
 	m.mutex.RUnlock()
 
+	if !connected || device == nil {
+		return
+	}
+
 	// 设置非阻塞模式
-	err := m.device.SetNonblock(true)
-	if err != nil {
+	if err := device.SetNonblock(true); err != nil {
 		m.logError("设置非阻塞模式失败: %v", err)
 	}
 
@@ -280,20 +284,15 @@ func (m *Manager) monitorDeviceData() {
 	const maxConsecutiveErrors = 5
 
 	for {
-		m.mutex.RLock()
-		connected := m.isConnected
-		device := m.device
-		m.mutex.RUnlock()
-
-		if !connected || device == nil {
-			m.logInfo("设备已断开，停止数据监控")
-			break
-		}
-
 		n, err := device.ReadWithTimeout(buffer, 1*time.Second)
 		if err != nil {
 			if err == hid.ErrTimeout {
-				consecutiveErrors = 0 // 超时是正常的，重置错误计数
+				consecutiveErrors = 0
+				// 顺便检查一下 isConnected，便于外部 Disconnect 时及时退出
+				if !m.IsConnected() {
+					m.logInfo("设备已断开，停止数据监控")
+					break
+				}
 				continue
 			}
 
@@ -305,32 +304,25 @@ func (m *Manager) monitorDeviceData() {
 				break
 			}
 
-			// 短暂等待后重试
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 
-		consecutiveErrors = 0 // 成功读取，重置错误计数
+		consecutiveErrors = 0
 
 		if n > 0 {
-			// 解析风扇数据
 			fanData := m.parseFanData(buffer, n)
 			if fanData != nil {
-				m.mutex.Lock()
-				m.currentFanData = fanData
-				m.mutex.Unlock()
+				// 无锁原子写
+				m.currentFanData.Store(fanData)
 
 				if m.onFanDataUpdate != nil {
 					m.onFanDataUpdate(fanData)
 				}
 			}
 		}
-
-		// 短暂休眠，避免高CPU占用
-		time.Sleep(100 * time.Millisecond)
 	}
 
-	// 设备监控循环退出，触发断开处理
 	m.handleDeviceDisconnected()
 }
 

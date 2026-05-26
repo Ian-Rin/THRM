@@ -250,15 +250,18 @@ func (m *Manager) connectToAnyPipe(pipeNames []string, timeout time.Duration) (n
 }
 
 // connectToPipe 连接到命名管道 (使用go-winio实现)
+//
+// 重试策略：指数退避 100ms → 200ms → 400ms → 800ms（上限 1000ms）。
 func (m *Manager) connectToPipe(pipeName string, timeout time.Duration) (net.Conn, error) {
 	pipePath := `\\.\pipe\` + pipeName
 	deadline := time.Now().Add(timeout)
 	retryCount := 0
+	backoff := 100 * time.Millisecond
+	const maxBackoff = 1000 * time.Millisecond
 
 	m.logger.Debug("尝试连接到管道: %s", pipePath)
 
 	for time.Now().Before(deadline) {
-		// 使用go-winio连接命名管道
 		conn, err := winio.DialPipe(pipePath, &timeout)
 		if err == nil {
 			m.logger.Info("成功连接到管道，重试次数: %d", retryCount)
@@ -266,11 +269,17 @@ func (m *Manager) connectToPipe(pipeName string, timeout time.Duration) (net.Con
 		}
 
 		retryCount++
-		if retryCount%50 == 0 { // 每5秒输出一次日志
+		if retryCount%5 == 0 {
 			m.logger.Debug("连接管道重试中... 第%d次尝试，错误: %v", retryCount, err)
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(backoff)
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
 	}
 
 	return nil, fmt.Errorf("连接管道超时，总计重试%d次，最后错误可能是权限或管道未就绪", retryCount)

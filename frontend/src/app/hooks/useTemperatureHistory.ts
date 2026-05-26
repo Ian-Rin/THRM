@@ -5,9 +5,6 @@ import { apiService } from '../services/api';
 import {
   appendHistoryPoint,
   normalizeHistoryPoints,
-  SESSION_HISTORY_LIMIT,
-  SESSION_HISTORY_RETENTION_MS,
-  trimHistoryPoints,
   type TemperatureHistoryPoint,
 } from '../lib/temperature-history';
 import { useAppStore } from '../store/app-store';
@@ -25,9 +22,9 @@ export function useTemperatureHistory() {
   }, [enabled]);
 
   useEffect(() => {
-    sessionPointsRef.current = trimHistoryPoints(sessionHistoryPoints, SESSION_HISTORY_RETENTION_MS, SESSION_HISTORY_LIMIT);
+    sessionPointsRef.current = sessionHistoryPoints;
     if (!enabledRef.current) {
-      setPoints(sessionPointsRef.current);
+      setPoints(sessionHistoryPoints);
     }
   }, [sessionHistoryPoints]);
 

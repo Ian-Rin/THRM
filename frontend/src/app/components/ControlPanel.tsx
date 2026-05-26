@@ -121,6 +121,43 @@ const FAN_LEVEL_OPTIONS = [
   { value: '高', label: '高' },
 ];
 
+// 模块级常量：在组件外定义，所有 render 共享同一个引用，避免每次重渲染都新建数组导致下游 Select 等组件 props 引用变化。
+const SMART_START_STOP_OPTIONS = [
+  { value: 'off', label: '关闭', description: '禁用智能启停功能' },
+  { value: 'immediate', label: '即时', description: '立即响应系统负载变化' },
+  { value: 'delayed', label: '延时', description: '延时响应，避免频繁启停' },
+];
+
+const SAMPLE_COUNT_OPTIONS = [
+  { value: 1, label: '1次 (即时)' },
+  { value: 2, label: '2次 (2s)' },
+  { value: 3, label: '3次 (3s)' },
+  { value: 5, label: '5次 (5s)' },
+  { value: 10, label: '10次 (10s)' },
+];
+
+const TEMP_SOURCE_OPTIONS = [
+  { value: 'max', label: '最高温度' },
+  { value: 'cpu', label: '仅 CPU' },
+  { value: 'gpu', label: '仅 GPU' },
+];
+
+const THEME_MODE_OPTIONS = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+];
+
+const LIGHT_MODE_OPTIONS = [
+  { value: 'off', label: '关闭灯光', description: '关闭所有RGB灯光' },
+  { value: 'smart_temp', label: '智能温控', description: '根据温度自动切换灯效' },
+  { value: 'static_single', label: '单色常亮', description: '固定单色显示' },
+  { value: 'static_multi', label: '多色常亮', description: '三色静态分区' },
+  { value: 'rotation', label: '多色旋转', description: '颜色循环旋转' },
+  { value: 'flowing', label: '流光', description: '预设流光效果' },
+  { value: 'breathing', label: '呼吸', description: '多色呼吸变化' },
+];
+
 function getDefaultLegionFnQConfig() {
   return {
     enabled: false,
@@ -355,18 +392,25 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
   const currentTempSource = (((config as any).tempSource as string) || 'max') as 'max' | 'cpu' | 'gpu';
   const cpuSensors = useMemo(() => (Array.isArray(temperature?.cpuSensors) ? temperature.cpuSensors : []), [temperature?.cpuSensors]);
   const gpuSensors = useMemo(() => (Array.isArray(temperature?.gpuSensors) ? temperature.gpuSensors : []), [temperature?.gpuSensors]);
-  const gpuDevices = useMemo(() => (Array.isArray((temperature as any)?.gpuDevices) ? (temperature as any).gpuDevices as types.TemperatureGPUDevice[] : []), [temperature]);
+  // 收窄依赖：旧实现依赖整个 temperature 对象，温度每秒推送都会重算并产生新数组引用，
+  // 导致下游 Select 等组件无谓重渲染。改为只依赖具体字段。
+  const rawGpuDevices = (temperature as any)?.gpuDevices;
+  const gpuDevices = useMemo(
+    () => (Array.isArray(rawGpuDevices) ? (rawGpuDevices as types.TemperatureGPUDevice[]) : []),
+    [rawGpuDevices],
+  );
   const selectedGpuDevice = useMemo(() => {
     const configured = (((config as any).gpuDevice as string) || 'auto');
     return configured === 'auto' || gpuDevices.some((device) => device.key === configured) ? configured : 'auto';
   }, [config, gpuDevices]);
+  const detectedGpuDevice = (temperature as any)?.selectedGpuDevice;
   const activeGpuDeviceKey = useMemo(() => {
     if (selectedGpuDevice !== 'auto') {
       return selectedGpuDevice;
     }
-    const detected = ((temperature as any)?.selectedGpuDevice as string) || 'auto';
+    const detected = (detectedGpuDevice as string) || 'auto';
     return gpuDevices.some((device) => device.key === detected) ? detected : 'auto';
-  }, [selectedGpuDevice, temperature, gpuDevices]);
+  }, [selectedGpuDevice, detectedGpuDevice, gpuDevices]);
   const activeGpuDevice = useMemo(() => {
     return gpuDevices.find((device) => device.key === activeGpuDeviceKey) || null;
   }, [activeGpuDeviceKey, gpuDevices]);
@@ -656,59 +700,25 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
 
   /* ── Options data ── */
 
-  const smartStartStopOptions = [
-    { value: 'off', label: '关闭', description: '禁用智能启停功能' },
-    { value: 'immediate', label: '即时', description: '立即响应系统负载变化' },
-    { value: 'delayed', label: '延时', description: '延时响应，避免频繁启停' },
-  ];
-
-  const sampleCountOptions = [
-    { value: 1, label: '1次 (即时)' },
-    { value: 2, label: '2次 (2s)' },
-    { value: 3, label: '3次 (3s)' },
-    { value: 5, label: '5次 (5s)' },
-    { value: 10, label: '10次 (10s)' },
-  ];
-
-  const tempSourceOptions = [
-    { value: 'max', label: '最高温度' },
-    { value: 'cpu', label: '仅 CPU' },
-    { value: 'gpu', label: '仅 GPU' },
-  ];
-
-  const gpuDeviceOptions = [
+  // 仅依赖 props 的 options 用 useMemo 缓存；纯静态选项已外提到模块级常量。
+  const gpuDeviceOptions = useMemo(() => [
     { value: 'auto', label: gpuDevices.length > 0 ? '自动选择 (优先独显)' : '自动选择' },
     ...gpuDevices.map((device) => ({
       value: device.key,
       label: `${device.vendor ? `${device.vendor.toUpperCase()} · ` : ''}${device.name}`,
     })),
-  ];
+  ], [gpuDevices]);
 
-  const cpuSensorOptions = [
+  const cpuSensorOptions = useMemo(() => [
     { value: 'auto', label: cpuSensors.length > 0 ? '自动选择 (推荐)' : '自动选择' },
     ...cpuSensors.map((sensor) => ({ value: sensor.key, label: `${sensor.name} (${sensor.value}°C)` })),
-  ];
+  ], [cpuSensors]);
 
-  const gpuSensorOptions = [
+  const gpuSensorOptions = useMemo(() => [
     { value: 'auto', label: effectiveGpuSensors.length > 0 ? '自动选择 (推荐)' : '自动选择' },
     ...effectiveGpuSensors.map((sensor) => ({ value: sensor.key, label: `${sensor.name} (${sensor.value}°C)` })),
-  ];
+  ], [effectiveGpuSensors]);
 
-  const themeModeOptions = [
-    { value: 'system', label: '跟随系统' },
-    { value: 'light', label: '浅色' },
-    { value: 'dark', label: '深色' },
-  ];
-
-  const lightModeOptions = [
-    { value: 'off', label: '关闭灯光', description: '关闭所有RGB灯光' },
-    { value: 'smart_temp', label: '智能温控', description: '根据温度自动切换灯效' },
-    { value: 'static_single', label: '单色常亮', description: '固定单色显示' },
-    { value: 'static_multi', label: '多色常亮', description: '三色静态分区' },
-    { value: 'rotation', label: '多色旋转', description: '颜色循环旋转' },
-    { value: 'flowing', label: '流光', description: '预设流光效果' },
-    { value: 'breathing', label: '呼吸', description: '多色呼吸变化' },
-  ];
 
   const lightSpeedOptions = [
     { value: 'fast', label: '快速' },
@@ -870,7 +880,7 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
               <Select
                 value={lightStripConfig.mode}
                 onChange={(v: string | number) => setLightStripConfig(types.LightStripConfig.createFrom({ ...lightStripConfig, mode: v as string }))}
-                options={lightModeOptions}
+                options={LIGHT_MODE_OPTIONS}
                 size="sm"
                 label="效果模式"
               />
@@ -986,7 +996,7 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
                     <Select
                       value={(config as any).tempSampleCount || 1}
                       onChange={(v: string | number) => handleSampleCountChange(v as number)}
-                      options={sampleCountOptions}
+                      options={SAMPLE_COUNT_OPTIONS}
                       size="sm"
                     />
                   </div>
@@ -1011,7 +1021,7 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
                   <Select
                     value={currentTempSource}
                     onChange={(value: string | number) => handleTempSourceChange(String(value))}
-                    options={tempSourceOptions}
+                    options={TEMP_SOURCE_OPTIONS}
                     size="sm"
                     className="w-full min-w-0"
                   />
@@ -1239,7 +1249,7 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
               <Select
                 value={config.smartStartStop || 'off'}
                 onChange={(v: string | number) => handleSmartStartStopChange(v as string)}
-                options={smartStartStopOptions.map((item) => ({ value: item.value, label: item.label }))}
+                options={SMART_START_STOP_OPTIONS.map((item: { value: string; label: string }) => ({ value: item.value, label: item.label }))}
                 disabled={!isConnected}
                 size="sm"
               />
@@ -1334,7 +1344,7 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
               <Select
                 value={((config as any).themeMode || 'system') as string}
                 onChange={(v: string | number) => handleThemeModeChange(String(v))}
-                options={themeModeOptions}
+                options={THEME_MODE_OPTIONS}
                 size="sm"
               />
             </div>

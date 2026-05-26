@@ -6,13 +6,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 )
 
 // Manager 配置管理器
+//
+// 注意：内部所有对 config 字段的读写均通过 mu 保护，避免并发场景下的数据竞争。
+// 公共方法（Get/Set/Update/Save/Load）是并发安全的；不要在持有 mu 的情况下调用
+// 这些公共方法（会自死锁）；内部需要无锁版本时使用以 Locked 结尾的私有方法。
 type Manager struct {
+	mu         sync.RWMutex
 	config     types.AppConfig
 	installDir string
 	logger     types.Logger
@@ -28,6 +34,9 @@ func NewManager(installDir string, logger types.Logger) *Manager {
 
 // Load 加载配置
 func (m *Manager) Load(isAutoStart bool) types.AppConfig {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// 优先尝试从默认目录加载配置
 	defaultConfigDir := m.GetDefaultConfigDir()
 	defaultConfigPath := filepath.Join(defaultConfigDir, "config.json")
@@ -38,7 +47,7 @@ func (m *Manager) Load(isAutoStart bool) types.AppConfig {
 	m.logInfo("尝试从默认目录加载配置: %s", defaultConfigPath)
 
 	// 先尝试从默认目录加载
-	if m.tryLoadFromPath(defaultConfigPath) {
+	if m.tryLoadFromPathLocked(defaultConfigPath) {
 		m.config.ConfigPath = defaultConfigPath
 		m.logInfo("从默认目录加载配置成功: %s", defaultConfigPath)
 		return m.config
@@ -46,10 +55,10 @@ func (m *Manager) Load(isAutoStart bool) types.AppConfig {
 
 	m.logInfo("从默认目录加载配置失败，尝试从旧目录加载: %s", legacyConfigPath)
 
-	if m.tryLoadFromPath(legacyConfigPath) {
+	if m.tryLoadFromPathLocked(legacyConfigPath) {
 		m.config.ConfigPath = defaultConfigPath
 		m.logInfo("从旧目录加载配置成功，将迁移到新目录: %s", legacyConfigPath)
-		if err := m.Save(); err != nil {
+		if err := m.saveLocked(); err != nil {
 			m.logError("迁移旧目录配置失败: %v", err)
 		}
 		return m.config
@@ -58,7 +67,7 @@ func (m *Manager) Load(isAutoStart bool) types.AppConfig {
 	m.logInfo("从默认目录加载配置失败，尝试从安装目录加载: %s", installConfigPath)
 
 	// 默认目录失败，尝试从安装目录加载
-	if m.tryLoadFromPath(installConfigPath) {
+	if m.tryLoadFromPathLocked(installConfigPath) {
 		m.config.ConfigPath = installConfigPath
 		m.logInfo("从安装目录加载配置成功: %s", installConfigPath)
 		return m.config
@@ -68,15 +77,15 @@ func (m *Manager) Load(isAutoStart bool) types.AppConfig {
 
 	m.config = types.GetDefaultConfig(isAutoStart)
 	m.config.ConfigPath = defaultConfigPath
-	if err := m.Save(); err != nil {
+	if err := m.saveLocked(); err != nil {
 		m.logError("保存默认配置失败: %v", err)
 	}
 
 	return m.config
 }
 
-// tryLoadFromPath 尝试从指定路径加载配置
-func (m *Manager) tryLoadFromPath(configPath string) bool {
+// tryLoadFromPathLocked 尝试从指定路径加载配置（调用方需持有 m.mu）
+func (m *Manager) tryLoadFromPathLocked(configPath string) bool {
 	if _, err := os.Stat(configPath); err != nil {
 		m.logDebug("配置文件不存在: %s", configPath)
 		return false
@@ -198,8 +207,15 @@ func applyMissingTemperatureDefaults(cfg *types.AppConfig, rawConfig map[string]
 	cfg.GpuSensor = types.NormalizeSensorSelection(cfg.GpuSensor)
 }
 
-// Save 保存配置
+// Save 保存配置（线程安全）
 func (m *Manager) Save() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.saveLocked()
+}
+
+// saveLocked 保存配置（调用方需持有 m.mu 写锁）
+func (m *Manager) saveLocked() error {
 	// 首先尝试保存到默认目录
 	defaultConfigDir := m.GetDefaultConfigDir()
 	defaultConfigPath := filepath.Join(defaultConfigDir, "config.json")
@@ -269,20 +285,26 @@ func (m *Manager) GetLegacyConfigDir() string {
 	return appmeta.LegacyUserConfigDir(homeDir)
 }
 
-// Get 获取当前配置
+// Get 获取当前配置（线程安全，返回拷贝）
 func (m *Manager) Get() types.AppConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.config
 }
 
-// Set 设置配置
+// Set 设置配置（线程安全）
 func (m *Manager) Set(config types.AppConfig) {
+	m.mu.Lock()
 	m.config = config
+	m.mu.Unlock()
 }
 
-// Update 更新配置并保存
+// Update 更新配置并保存（线程安全，原子操作）
 func (m *Manager) Update(config types.AppConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.config = config
-	return m.Save()
+	return m.saveLocked()
 }
 
 // 日志辅助方法

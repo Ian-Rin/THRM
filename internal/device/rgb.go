@@ -127,21 +127,25 @@ func ensureMinColors(colors []types.RGBColor, min int) []types.RGBColor {
 	return result
 }
 
-func lightChecksum(payload []byte) byte {
-	var sum uint16
-	for _, b := range payload[2:] {
-		sum += uint16(b)
-	}
-	return byte(sum & 0xFF)
-}
-
+// sendLightCommandLocked 发送一条灯效命令。
 func (m *Manager) sendLightCommandLocked(fields ...byte) error {
-	cmd := append([]byte{0x5A, 0xA5}, fields...)
-	cmd = append(cmd, lightChecksum(cmd))
-
-	buf := make([]byte, 65)
+	buf := m.lightCmdBuf[:]
+	for i := range buf {
+		buf[i] = 0
+	}
+	// HID Report 帧布局：buf[0] = ReportID(0x02)；buf[1..] = 0x5A 0xA5 fields... checksum
 	buf[0] = 0x02
-	copy(buf[1:], cmd)
+	buf[1] = 0x5A
+	buf[2] = 0xA5
+	copy(buf[3:], fields)
+	// checksum 计算范围：从 fields[0] 起到 fields 末尾。
+	// 旧实现 cmd = [0x5A, 0xA5, fields...]，checksum 取 cmd[2:] 即 fields。
+	var sum uint16
+	end := 3 + len(fields)
+	for i := 3; i < end; i++ {
+		sum += uint16(buf[i])
+	}
+	buf[end] = byte(sum & 0xFF)
 
 	if _, err := m.device.Write(buf); err != nil {
 		return err

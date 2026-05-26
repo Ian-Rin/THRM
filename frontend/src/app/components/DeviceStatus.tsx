@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertTriangle,
@@ -217,30 +217,48 @@ const MiniFanCurveChart = memo(function MiniFanCurveChart({
   currentTemp: number | undefined;
   onOpen?: () => void;
 }) {
-  const points = Array.isArray(curve) ? curve.filter((point) => typeof point.temperature === 'number' && typeof point.rpm === 'number') : [];
-  const source = points.length > 0 ? points : [
-    { temperature: 30, rpm: 600 },
-    { temperature: 45, rpm: 1200 },
-    { temperature: 60, rpm: 2300 },
-    { temperature: 75, rpm: 3300 },
-    { temperature: 95, rpm: 4000 },
-  ];
-  const minTemp = Math.min(...source.map((point) => point.temperature), 30);
-  const maxTemp = Math.max(...source.map((point) => point.temperature), 100);
-  const maxRpm = Math.max(4000, ...source.map((point) => point.rpm));
-  const width = 520;
-  const height = 146;
-  const pad = { left: 44, right: 20, top: 14, bottom: 18 };
-  const plotWidth = width - pad.left - pad.right;
-  const plotHeight = height - pad.top - pad.bottom;
-  const xForTemp = (temp: number) => pad.left + ((temp - minTemp) / Math.max(1, maxTemp - minTemp)) * plotWidth;
-  const yForRpm = (rpm: number) => pad.top + plotHeight - (rpm / maxRpm) * plotHeight;
-  const linePoints = source.map((point) => `${xForTemp(point.temperature).toFixed(1)},${yForRpm(point.rpm).toFixed(1)}`).join(' ');
-  const areaPoints = `${pad.left},${pad.top + plotHeight} ${linePoints} ${pad.left + plotWidth},${pad.top + plotHeight}`;
+
+  const geometry = useMemo(() => {
+    const points = Array.isArray(curve)
+      ? curve.filter((point) => typeof point.temperature === 'number' && typeof point.rpm === 'number')
+      : [];
+    const source = points.length > 0 ? points : [
+      { temperature: 30, rpm: 600 },
+      { temperature: 45, rpm: 1200 },
+      { temperature: 60, rpm: 2300 },
+      { temperature: 75, rpm: 3300 },
+      { temperature: 95, rpm: 4000 },
+    ];
+    // 单遍扫描计算 min/max，避免旧实现 4 次 Math.min/Math.max(...source.map(...)) 重建临时数组。
+    let minTemp = 30;
+    let maxTemp = 100;
+    let maxRpm = 4000;
+    for (const p of source) {
+      if (p.temperature < minTemp) minTemp = p.temperature;
+      if (p.temperature > maxTemp) maxTemp = p.temperature;
+      if (p.rpm > maxRpm) maxRpm = p.rpm;
+    }
+    const width = 520;
+    const height = 146;
+    const pad = { left: 44, right: 20, top: 14, bottom: 18 };
+    const plotWidth = width - pad.left - pad.right;
+    const plotHeight = height - pad.top - pad.bottom;
+    const tempRange = Math.max(1, maxTemp - minTemp);
+    const xForTemp = (temp: number) => pad.left + ((temp - minTemp) / tempRange) * plotWidth;
+    const yForRpm = (rpm: number) => pad.top + plotHeight - (rpm / maxRpm) * plotHeight;
+    const linePoints = source
+      .map((point) => `${xForTemp(point.temperature).toFixed(1)},${yForRpm(point.rpm).toFixed(1)}`)
+      .join(' ');
+    const areaPoints = `${pad.left},${pad.top + plotHeight} ${linePoints} ${pad.left + plotWidth},${pad.top + plotHeight}`;
+    const yTicks: number[] = [0, 1000, 2000, 3000, 4000].filter((tick) => tick <= maxRpm);
+    return { width, height, pad, plotWidth, plotHeight, minTemp, maxTemp, maxRpm, xForTemp, yForRpm, linePoints, areaPoints, yTicks };
+  }, [curve]);
+
+  const { width, height, pad, plotWidth, plotHeight, minTemp, maxTemp, xForTemp, yForRpm, linePoints, areaPoints, yTicks } = geometry;
+
   const currentX = typeof currentTemp === 'number' && currentTemp > 0
     ? Math.max(pad.left, Math.min(pad.left + plotWidth, xForTemp(currentTemp)))
     : null;
-  const yTicks = [0, 1000, 2000, 3000, 4000].filter((tick) => tick <= maxRpm);
 
   return (
     <button

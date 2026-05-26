@@ -145,13 +145,24 @@ const (
 
 // Server IPC 服务器
 type Server struct {
-	listener net.Listener
-	clients  map[net.Conn]bool
-	mutex    sync.RWMutex
-	handler  RequestHandler
-	logger   types.Logger
-	running  bool
+	listener      net.Listener
+	clients       map[net.Conn]*clientState
+	mutex         sync.RWMutex
+	handler       RequestHandler
+	logger        types.Logger
+	running       bool
+	throttleMutex sync.Mutex
+	lastEventEmit map[string]time.Time
 }
+
+type clientState struct {
+	conn      net.Conn
+	writeCh   chan []byte
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+const clientWriteQueueSize = 64
 
 // RequestHandler 请求处理函数类型
 type RequestHandler func(req Request) Response
@@ -163,9 +174,10 @@ func newMessageID(prefix string) string {
 // NewServer 创建 IPC 服务器
 func NewServer(handler RequestHandler, logger types.Logger) *Server {
 	return &Server{
-		clients: make(map[net.Conn]bool),
-		handler: handler,
-		logger:  logger,
+		clients:       make(map[net.Conn]*clientState),
+		handler:       handler,
+		logger:        logger,
+		lastEventEmit: make(map[string]time.Time),
 	}
 }
 
@@ -202,22 +214,55 @@ func (s *Server) acceptConnections() {
 			continue
 		}
 
+		state := &clientState{
+			conn:    conn,
+			writeCh: make(chan []byte, clientWriteQueueSize),
+			closed:  make(chan struct{}),
+		}
+
 		s.mutex.Lock()
-		s.clients[conn] = true
+		s.clients[conn] = state
 		s.mutex.Unlock()
 
 		s.logInfo("新的 IPC 客户端已连接")
-		go s.handleClient(conn)
+
+		go s.clientWriter(state)
+		go s.handleClient(conn, state)
 	}
 }
 
-// handleClient 处理客户端连接
-func (s *Server) handleClient(conn net.Conn) {
-	defer func() {
+func (s *Server) clientWriter(state *clientState) {
+	for {
+		select {
+		case data, ok := <-state.writeCh:
+			if !ok {
+				return
+			}
+			if _, err := state.conn.Write(data); err != nil {
+				s.logDebug("发送数据失败: %v", err)
+				s.closeClient(state)
+				return
+			}
+		case <-state.closed:
+			return
+		}
+	}
+}
+
+func (s *Server) closeClient(state *clientState) {
+	state.closeOnce.Do(func() {
+		close(state.closed)
 		s.mutex.Lock()
-		delete(s.clients, conn)
+		delete(s.clients, state.conn)
 		s.mutex.Unlock()
-		conn.Close()
+		state.conn.Close()
+	})
+}
+
+// handleClient 处理客户端连接
+func (s *Server) handleClient(conn net.Conn, state *clientState) {
+	defer func() {
+		s.closeClient(state)
 		s.logInfo("IPC 客户端已断开")
 	}()
 
@@ -258,23 +303,47 @@ func (s *Server) handleClient(conn net.Conn) {
 		}
 		resp.IsResponse = true
 
-		// 发送响应
 		respBytes, err := json.Marshal(resp)
 		if err != nil {
 			s.logError("序列化响应失败: %v", err)
 			continue
 		}
 
-		_, err = conn.Write(append(respBytes, '\n'))
-		if err != nil {
+		if _, err := conn.Write(append(respBytes, '\n')); err != nil {
 			s.logError("发送响应失败: %v", err)
 			return
 		}
 	}
 }
 
+var highFrequencyEventTypes = map[string]time.Duration{
+	EventFanDataUpdate:            250 * time.Millisecond,
+	EventTemperatureUpdate:        250 * time.Millisecond,
+	EventTemperatureHistoryUpdate: 1000 * time.Millisecond,
+}
+
+func (s *Server) shouldDropEvent(eventType string) bool {
+	threshold, ok := highFrequencyEventTypes[eventType]
+	if !ok {
+		return false
+	}
+	now := time.Now()
+	s.throttleMutex.Lock()
+	defer s.throttleMutex.Unlock()
+	last, exists := s.lastEventEmit[eventType]
+	if exists && now.Sub(last) < threshold {
+		return true
+	}
+	s.lastEventEmit[eventType] = now
+	return false
+}
+
 // BroadcastEvent 广播事件给所有客户端
 func (s *Server) BroadcastEvent(eventType string, data any) {
+	if s.shouldDropEvent(eventType) {
+		return
+	}
+
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
 		s.logError("序列化事件数据失败: %v", err)
@@ -286,7 +355,7 @@ func (s *Server) BroadcastEvent(eventType string, data any) {
 		EventID:       newMessageID("evt"),
 		Timestamp:     time.Now().UnixMilli(),
 		Source:        "core",
-		IsEvent:       true, // 标记为事件
+		IsEvent:       true,
 		Type:          eventType,
 		Data:          dataBytes,
 	}
@@ -296,18 +365,17 @@ func (s *Server) BroadcastEvent(eventType string, data any) {
 		s.logError("序列化事件失败: %v", err)
 		return
 	}
+	payload := append(eventBytes, '\n')
 
 	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	for conn := range s.clients {
-		go func(c net.Conn) {
-			_, err := c.Write(append(eventBytes, '\n'))
-			if err != nil {
-				s.logDebug("发送事件失败: %v", err)
-			}
-		}(conn)
+	for _, state := range s.clients {
+		select {
+		case state.writeCh <- payload:
+		default:
+			s.logDebug("客户端写队列已满，丢弃事件: %s", eventType)
+		}
 	}
+	s.mutex.RUnlock()
 }
 
 // Stop 停止服务器
@@ -318,10 +386,13 @@ func (s *Server) Stop() {
 	}
 
 	s.mutex.Lock()
-	for conn := range s.clients {
-		conn.Close()
+	for conn, state := range s.clients {
+		state.closeOnce.Do(func() {
+			close(state.closed)
+			conn.Close()
+		})
 	}
-	s.clients = make(map[net.Conn]bool)
+	s.clients = make(map[net.Conn]*clientState)
 	s.mutex.Unlock()
 
 	s.logInfo("IPC 服务器已停止")
@@ -354,22 +425,28 @@ func (s *Server) logDebug(format string, v ...any) {
 }
 
 // Client IPC 客户端
+//
+// 响应路由：每条 SendRequest 注册一个 (requestID -> chan *Response)，readLoop 收到响应时
+// 按 requestID 派发到对应 channel。这样并发请求互不串扰，且超时未取消的旧响应被自动丢弃。
 type Client struct {
 	conn         net.Conn
 	mutex        sync.Mutex
 	reader       *bufio.Reader
 	logger       types.Logger
 	eventHandler func(Event)
-	responseChan chan *Response
-	connected    bool
-	connMutex    sync.RWMutex
+
+	pendingMutex sync.Mutex
+	pending      map[string]chan *Response
+
+	connected bool
+	connMutex sync.RWMutex
 }
 
 // NewClient 创建 IPC 客户端
 func NewClient(logger types.Logger) *Client {
 	return &Client{
-		logger:       logger,
-		responseChan: make(chan *Response, 1),
+		logger:  logger,
+		pending: make(map[string]chan *Response),
 	}
 }
 
@@ -440,10 +517,18 @@ func (c *Client) readLoop() {
 		if msg.IsResponse {
 			var resp Response
 			if err := json.Unmarshal(line, &resp); err == nil {
-				select {
-				case c.responseChan <- &resp:
-				default:
-					c.logDebug("响应通道已满，丢弃响应")
+				// 按 RequestID 路由到对应等待者；找不到则说明请求已超时取消，直接丢弃
+				c.pendingMutex.Lock()
+				ch, ok := c.pending[resp.RequestID]
+				if ok {
+					delete(c.pending, resp.RequestID)
+				}
+				c.pendingMutex.Unlock()
+				if ok {
+					// channel 容量 1 + delete 后立即送达，不会阻塞
+					ch <- &resp
+				} else {
+					c.logDebug("收到无主响应，丢弃: requestID=%s", resp.RequestID)
 				}
 			}
 		} else if msg.IsEvent {
@@ -464,9 +549,6 @@ func (c *Client) SetEventHandler(handler func(Event)) {
 
 // SendRequest 发送请求并等待响应
 func (c *Client) SendRequest(reqType RequestType, data any) (*Response, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
 	c.connMutex.RLock()
 	if !c.connected || c.conn == nil {
 		c.connMutex.RUnlock()
@@ -484,9 +566,10 @@ func (c *Client) SendRequest(reqType RequestType, data any) (*Response, error) {
 		}
 	}
 
+	requestID := newMessageID("req")
 	req := Request{
 		ProtocolVersion: appmeta.ProtocolVersion,
-		RequestID:       newMessageID("req"),
+		RequestID:       requestID,
 		Timestamp:       time.Now().UnixMilli(),
 		Type:            reqType,
 		Data:            dataBytes,
@@ -497,21 +580,28 @@ func (c *Client) SendRequest(reqType RequestType, data any) (*Response, error) {
 		return nil, fmt.Errorf("序列化请求失败: %v", err)
 	}
 
-	// 清空响应通道
-	select {
-	case <-c.responseChan:
-	default:
-	}
+	respCh := make(chan *Response, 1)
+	c.pendingMutex.Lock()
+	c.pending[requestID] = respCh
+	c.pendingMutex.Unlock()
 
+	c.mutex.Lock()
 	_, err = conn.Write(append(reqBytes, '\n'))
+	c.mutex.Unlock()
 	if err != nil {
+		c.pendingMutex.Lock()
+		delete(c.pending, requestID)
+		c.pendingMutex.Unlock()
 		return nil, fmt.Errorf("发送请求失败: %v", err)
 	}
 
 	select {
-	case resp := <-c.responseChan:
+	case resp := <-respCh:
 		return resp, nil
 	case <-time.After(10 * time.Second):
+		c.pendingMutex.Lock()
+		delete(c.pending, requestID)
+		c.pendingMutex.Unlock()
 		return nil, fmt.Errorf("等待响应超时")
 	}
 }

@@ -1,6 +1,8 @@
 'use client';
 
+import { useMemo } from 'react';
 import { types } from '../../wailsjs/go/models';
+import { useShallow } from 'zustand/react/shallow';
 import AppFatalError from './components/AppFatalError';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
 import AboutPanel from './components/AboutPanel';
@@ -14,18 +16,22 @@ import { useAppStore } from './store/app-store';
 export default function Home() {
   useAppBootstrap();
 
-  const isConnected = useAppStore((state) => state.isConnected);
-  const deviceProductId = useAppStore((state) => state.deviceProductId);
-  const deviceModel = useAppStore((state) => state.deviceModel);
-  const config = useAppStore((state) => state.config);
-  const fanData = useAppStore((state) => state.fanData);
-  const temperature = useAppStore((state) => state.temperature);
-  const legionFnQSupported = useAppStore((state) => state.legionFnQSupported);
-  const bridgeWarning = useAppStore((state) => state.bridgeWarning);
-  const isLoading = useAppStore((state) => state.isLoading);
-  const error = useAppStore((state) => state.error);
-  const activeTab = useAppStore((state) => state.activeTab);
-  const curveFocusTarget = useAppStore((state) => state.curveFocusTarget);
+  const view = useAppStore(
+    useShallow((state) => ({
+      isConnected: state.isConnected,
+      deviceProductId: state.deviceProductId,
+      deviceModel: state.deviceModel,
+      config: state.config,
+      fanData: state.fanData,
+      temperature: state.temperature,
+      legionFnQSupported: state.legionFnQSupported,
+      bridgeWarning: state.bridgeWarning,
+      isLoading: state.isLoading,
+      error: state.error,
+      activeTab: state.activeTab,
+      curveFocusTarget: state.curveFocusTarget,
+    })),
+  );
 
   const initializeApp = useAppStore((state) => state.initializeApp);
   const connectDevice = useAppStore((state) => state.connectDevice);
@@ -36,34 +42,37 @@ export default function Home() {
   const clearCurveFocusTarget = useAppStore((state) => state.clearCurveFocusTarget);
   const clearBridgeWarning = useAppStore((state) => state.clearBridgeWarning);
 
-  if (isLoading) {
+  const safeConfig = useMemo(
+    () => view.config || new types.AppConfig(),
+    [view.config],
+  );
+
+  if (view.isLoading) {
     return <AppLoadingSkeleton />;
   }
 
-  if (error && !config) {
-    return <AppFatalError message={error} onRetry={initializeApp} />;
+  if (view.error && !view.config) {
+    return <AppFatalError message={view.error} onRetry={initializeApp} />;
   }
-
-  const safeConfig = config || new types.AppConfig();
 
   return (
     <AppShell
-      activeTab={activeTab}
+      activeTab={view.activeTab}
       onTabChange={setActiveTab}
-      isConnected={isConnected}
-      fanData={fanData}
-      temperature={temperature}
+      isConnected={view.isConnected}
+      fanData={view.fanData}
+      temperature={view.temperature}
       autoControl={safeConfig.autoControl}
-      error={error}
-      bridgeWarning={bridgeWarning}
+      error={view.error}
+      bridgeWarning={view.bridgeWarning}
       onDismissBridgeWarning={clearBridgeWarning}
       statusContent={
         <DeviceStatus
-          isConnected={isConnected}
-          deviceProductId={deviceProductId}
-          deviceModel={deviceModel}
-          fanData={fanData}
-          temperature={temperature}
+          isConnected={view.isConnected}
+          deviceProductId={view.deviceProductId}
+          deviceModel={view.deviceModel}
+          fanData={view.fanData}
+          temperature={view.temperature}
           config={safeConfig}
           onConnect={connectDevice}
           onDisconnect={disconnectDevice}
@@ -76,11 +85,11 @@ export default function Home() {
         <FanCurve
           config={safeConfig}
           onConfigChange={updateConfig}
-          isConnected={isConnected}
-          fanData={fanData}
-          temperature={temperature}
-          deviceModel={deviceModel}
-          focusTarget={curveFocusTarget}
+          isConnected={view.isConnected}
+          fanData={view.fanData}
+          temperature={view.temperature}
+          deviceModel={view.deviceModel}
+          focusTarget={view.curveFocusTarget}
           onFocusHandled={clearCurveFocusTarget}
         />
       }
@@ -88,11 +97,11 @@ export default function Home() {
         <ControlPanel
           config={safeConfig}
           onConfigChange={updateConfig}
-          isConnected={isConnected}
-          fanData={fanData}
-          temperature={temperature}
-          legionFnQSupported={legionFnQSupported}
-          deviceModel={deviceModel}
+          isConnected={view.isConnected}
+          fanData={view.fanData}
+          temperature={view.temperature}
+          legionFnQSupported={view.legionFnQSupported}
+          deviceModel={view.deviceModel}
         />
       }
       aboutContent={<AboutPanel />}
