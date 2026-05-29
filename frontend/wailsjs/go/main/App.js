@@ -70,6 +70,10 @@ export function GetTemperatureHistory() {
   return window['go']['main']['App']['GetTemperatureHistory']();
 }
 
+export function GetThemeCSS(arg1) {
+  return window['go']['main']['App']['GetThemeCSS'](arg1);
+}
+
 export function HideWindow() {
   return window['go']['main']['App']['HideWindow']();
 }
@@ -90,8 +94,16 @@ export function IsRunningAsAdmin() {
   return window['go']['main']['App']['IsRunningAsAdmin']();
 }
 
+export function ListThemes() {
+  return window['go']['main']['App']['ListThemes']();
+}
+
 export function ManualSetFanSpeed(arg1) {
   return window['go']['main']['App']['ManualSetFanSpeed'](arg1);
+}
+
+export function OpenThemesFolder() {
+  return window['go']['main']['App']['OpenThemesFolder']();
 }
 
 export function QuitAll() {

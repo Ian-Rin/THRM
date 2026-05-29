@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	goruntime "runtime"
 	"sync"
 
 	"github.com/TIANLI0/BS2PRO-Controller/internal/appmeta"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/ipc"
+	"github.com/TIANLI0/BS2PRO-Controller/internal/theme"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/types"
 	"github.com/TIANLI0/BS2PRO-Controller/internal/version"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -23,6 +27,9 @@ type App struct {
 	// 缓存的状态
 	isConnected bool
 	currentTemp types.TemperatureData
+
+	// 自定义主题管理器（发现/播种/读取安装目录与用户目录下的主题）
+	themeManager *theme.Manager
 }
 
 // 为了与前端 API 兼容，重新导出类型
@@ -48,9 +55,13 @@ func init() {
 
 // NewApp 创建 GUI 应用实例
 func NewApp() *App {
+	tm := newThemeManager()
+	// 首次运行时把内置主题播种到磁盘，方便用户编辑。
+	tm.EnsureSeeded()
 	return &App{
-		ipcClient:   ipc.NewClient(nil),
-		currentTemp: types.TemperatureData{BridgeOk: true},
+		ipcClient:    ipc.NewClient(nil),
+		currentTemp:  types.TemperatureData{BridgeOk: true},
+		themeManager: tm,
 	}
 }
 
@@ -77,6 +88,51 @@ func (a *App) startup(ctx context.Context) {
 // GetAppVersion 返回应用版本号（来自版本模块）
 func (a *App) GetAppVersion() string {
 	return version.Get()
+}
+
+// ListThemes 返回所有可用的自定义主题（供前端「界面主题」下拉动态渲染）。
+func (a *App) ListThemes() []theme.Meta {
+	if a.themeManager == nil {
+		return []theme.Meta{}
+	}
+	return a.themeManager.List()
+}
+
+// GetThemeCSS 返回指定自定义主题的 CSS 内容（供前端注入页面）。
+func (a *App) GetThemeCSS(id string) (string, error) {
+	if a.themeManager == nil {
+		return "", fmt.Errorf("主题管理器未初始化")
+	}
+	return a.themeManager.ReadCSS(id)
+}
+
+// OpenThemesFolder 在系统文件管理器中打开主题文件夹，方便用户编辑/新增主题。
+func (a *App) OpenThemesFolder() error {
+	if a.themeManager == nil {
+		return fmt.Errorf("主题管理器未初始化")
+	}
+	dir := a.themeManager.ResolveDir()
+	if dir == "" {
+		return fmt.Errorf("无法定位主题文件夹")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		guiLogger.Warnf("创建主题文件夹失败: %v", err)
+	}
+
+	var cmd *exec.Cmd
+	switch goruntime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", dir)
+	case "darwin":
+		cmd = exec.Command("open", dir)
+	default:
+		cmd = exec.Command("xdg-open", dir)
+	}
+	// explorer 打开目录成功时仍可能返回非零退出码，这里仅记录不视为失败。
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("打开主题文件夹失败: %w", err)
+	}
+	return nil
 }
 
 // handleCoreEvent 处理核心服务推送的事件

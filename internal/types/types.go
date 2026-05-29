@@ -23,18 +23,44 @@ const (
 	LearningBiasQuiet      = "quiet"
 )
 
-// NormalizeThemeMode 归一化主题模式，非法值回退为 system。
+// NormalizeThemeMode 归一化主题模式。
+//
+// 取值说明：
+//   - system/light/dark：内置基础主题。
+//   - 其它合法 id（小写字母/数字/-/_）：视为自定义主题 id（如 "thrm"），原样透传，
+//     由前端按安装目录/用户目录下发现的主题加载对应 CSS。
+//   - 空值或非法字符：回退为 system。
 func NormalizeThemeMode(mode string) string {
 	switch mode {
 	case ThemeModeLight:
 		return ThemeModeLight
 	case ThemeModeDark:
 		return ThemeModeDark
-	case ThemeModeTHRM:
-		return ThemeModeTHRM
-	default:
+	case ThemeModeSystem:
 		return ThemeModeSystem
 	}
+	if isValidThemeID(mode) {
+		return mode
+	}
+	return ThemeModeSystem
+}
+
+// isValidThemeID 校验自定义主题 id：仅允许小写字母、数字、连字符、下划线。
+// 与 internal/theme 包的校验保持一致，避免非法值被写入配置或用作 CSS 选择器。
+func isValidThemeID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // NormalizeTempSource 归一化控温温度来源，非法值回退为 max。

@@ -492,7 +492,8 @@
     "system": {
       "sectionTitle": "システム設定",
       "themeTitle": "テーマ",
-      "themeDescription": "デフォルトではシステム設定に従い、必要に応じてライトまたはダークに固定できます。",
+      "themeDescription": "既定ではシステムに追従し、ライト/ダーク固定のほか、インストール先の themes フォルダーにあるカスタムテーマも選べます。",
+      "themeOpenFolder": "テーマフォルダーを開く",
       "languageTitle": "言語",
       "languageDescription": "アプリの表示言語を切り替え、選択した言語は自動で保存されます。",
       "hotkeys": {

@@ -28,7 +28,7 @@ import {
 import { apiService } from '../services/api';
 import { types } from '../../../wailsjs/go/models';
 import { toast } from 'sonner';
-import { DebugInfo } from '../types/app';
+import { DebugInfo, type ThemeMeta } from '../types/app';
 import { type AppLocale, useLocale } from '../lib/i18n';
 import { getManualGearLabel, getManualLevelLabel } from '../lib/manualGearPresets';
 import FanCurveProfileSelect from './FanCurveProfileSelect';
@@ -131,10 +131,10 @@ const TEMP_SOURCE_OPTIONS = [
   { value: 'gpu', labelKey: 'controlPanel.options.tempSource.gpu' },
 ];
 
+// 内置基础主题选项。自定义主题（如 THRM）改为运行时从安装目录动态发现并追加。
 const THEME_MODE_OPTIONS = [
   { value: 'light', labelKey: 'controlPanel.options.themeMode.light' },
   { value: 'dark', labelKey: 'controlPanel.options.themeMode.dark' },
-  { value: 'thrm', label: 'THRM' },
   { value: 'system', labelKey: 'controlPanel.options.themeMode.system' },
 ];
 
@@ -409,6 +409,8 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
   const [debugInfoLoading, setDebugInfoLoading] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const [showCustomSpeedWarning, setShowCustomSpeedWarning] = useState(false);
+  // 安装目录/用户目录下发现的自定义主题（用于「界面主题」下拉动态渲染）
+  const [customThemes, setCustomThemes] = useState<ThemeMeta[]>([]);
   const [customSpeedInput, setCustomSpeedInput] = useState<number>((config as any).customSpeedRPM || 2000);
   const [lightStripConfig, setLightStripConfig] = useState<types.LightStripConfig>(() => normalizeLightStripConfig(config));
   const [manualHotkeyInput, setManualHotkeyInput] = useState(
@@ -491,9 +493,13 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     () => TEMP_SOURCE_OPTIONS.map((item) => ({ value: item.value, label: t(item.labelKey) })),
     [locale, t],
   );
+  // 内置基础主题选项 + 运行时发现的自定义主题（如 THRM）。
   const themeModeOptions = useMemo(
-    () => THEME_MODE_OPTIONS.map((item) => ({ value: item.value, label: item.labelKey ? t(item.labelKey) : item.label! })),
-    [locale, t],
+    () => [
+      ...THEME_MODE_OPTIONS.map((item) => ({ value: item.value, label: t(item.labelKey) })),
+      ...customThemes.map((theme) => ({ value: theme.id, label: theme.name })),
+    ],
+    [locale, t, customThemes],
   );
   const lightModeOptions = useMemo(
     () => LIGHT_MODE_OPTIONS.map((item) => ({ value: item.value, label: t(item.labelKey), description: t(item.descriptionKey) })),
@@ -862,8 +868,27 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     } catch (e) { alert(t('controlPanel.alerts.lightStripFailed', { error: getErrorMessage(e) })); } finally { setLoading('lightStrip', false); }
   }, [lightStripConfig, config, onConfigChange, requiredColorCount, t]);
 
+  // 加载安装目录/用户目录下发现的自定义主题。
+  useEffect(() => {
+    let cancelled = false;
+    apiService
+      .listThemes()
+      .then((themes) => {
+        if (!cancelled) setCustomThemes(themes);
+      })
+      .catch(() => {
+        /* 列表获取失败时仅保留内置基础主题 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleThemeModeChange = useCallback(async (mode: string) => {
-    const nextMode = mode === 'light' || mode === 'dark' || mode === 'thrm' ? mode : 'system';
+    // system/light/dark 为内置；其余按自定义主题 id 校验（须在已发现列表中）。
+    const isBuiltin = mode === 'light' || mode === 'dark' || mode === 'system';
+    const isKnownCustom = customThemes.some((theme) => theme.id === mode);
+    const nextMode = isBuiltin || isKnownCustom ? mode : 'system';
     try {
       const newCfg = types.AppConfig.createFrom({
         ...config,
@@ -874,7 +899,15 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     } catch {
       /* noop */
     }
-  }, [config, onConfigChange]);
+  }, [config, onConfigChange, customThemes]);
+
+  const handleOpenThemesFolder = useCallback(async () => {
+    try {
+      await apiService.openThemesFolder();
+    } catch {
+      /* noop */
+    }
+  }, []);
 
   const saveHotkeys = useCallback(async (silent = false) => {
     setLoading('hotkeys', true);
@@ -1460,13 +1493,23 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
             title={t('controlPanel.system.themeTitle')}
             description={t('controlPanel.system.themeDescription')}
           >
-            <div className="w-36">
-              <Select
-                value={((config as any).themeMode || 'system') as string}
-                onChange={(v: string | number) => handleThemeModeChange(String(v))}
-                options={themeModeOptions}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
                 size="sm"
-              />
+                onClick={handleOpenThemesFolder}
+                title={t('controlPanel.system.themeOpenFolder')}
+              >
+                {t('controlPanel.system.themeOpenFolder')}
+              </Button>
+              <div className="w-36">
+                <Select
+                  value={((config as any).themeMode || 'system') as string}
+                  onChange={(v: string | number) => handleThemeModeChange(String(v))}
+                  options={themeModeOptions}
+                  size="sm"
+                />
+              </div>
             </div>
           </SettingRow>
 

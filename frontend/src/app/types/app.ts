@@ -62,7 +62,8 @@ export interface AppConfig {
   gearLight: boolean;          // 挡位灯
   powerOnStart: boolean;       // 通电自启动
   windowsAutoStart: boolean;   // Windows开机自启动
-  themeMode?: 'system' | 'light' | 'dark' | 'thrm'; // 主题模式
+  // 主题模式：system/light/dark 为内置基础主题；其它字符串为自定义主题 id（如 'thrm'）
+  themeMode?: string;
   smartStartStop: string;      // 智能启停
   brightness: number;          // 亮度
   tempUpdateRate: number;      // 温度更新频率(秒)
@@ -173,6 +174,17 @@ export interface DeviceStatus {
   temperature: TemperatureData;
   productId?: string;
   model?: string;
+}
+
+// 自定义主题元数据（由后端 ListThemes 返回）
+export interface ThemeMeta {
+  id: string;
+  name: string;
+  base: string;        // light | dark
+  author?: string;
+  version?: string;
+  description?: string;
+  source: string;      // user | install | builtin
 }
 
 // 设备信息

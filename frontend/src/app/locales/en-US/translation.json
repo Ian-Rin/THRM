@@ -492,7 +492,8 @@
     "system": {
       "sectionTitle": "System settings",
       "themeTitle": "Theme",
-      "themeDescription": "Follow the system by default, or lock the interface to light or dark mode.",
+      "themeDescription": "Follow the system by default, lock to light/dark, or pick a custom theme from the install themes folder.",
+      "themeOpenFolder": "Open themes folder",
       "languageTitle": "Language",
       "languageDescription": "Change the app language instantly and remember the choice automatically.",
       "hotkeys": {

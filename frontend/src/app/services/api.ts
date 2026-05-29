@@ -38,6 +38,7 @@ import type {
   DebugInfo,
   LegionFnQSupportPayload,
   LegionPowerModePayload,
+  ThemeMeta,
 } from '../types/app';
 
 class ApiService {
@@ -258,6 +259,27 @@ class ApiService {
 
   async setDebugMode(enabled: boolean): Promise<void> {
     return await SetDebugMode(enabled);
+  }
+
+  // ── 自定义主题 ──
+  // 注：以下方法走 Wails 运行时自动暴露的 window.go.main.App 代理，
+  // 因此无需重新生成强类型绑定即可调用（与上面若干方法同理）。
+
+  // 列出安装目录/用户目录下发现的全部自定义主题。
+  async listThemes(): Promise<ThemeMeta[]> {
+    const list = await (window as any).go?.main?.App?.ListThemes?.();
+    return Array.isArray(list) ? (list as ThemeMeta[]) : [];
+  }
+
+  // 读取指定主题的 CSS 文本（用于注入页面）。
+  async getThemeCSS(id: string): Promise<string> {
+    const css = await (window as any).go?.main?.App?.GetThemeCSS?.(id);
+    return typeof css === 'string' ? css : '';
+  }
+
+  // 在系统文件管理器中打开主题文件夹，便于用户编辑/新增主题。
+  async openThemesFolder(): Promise<void> {
+    return await (window as any).go?.main?.App?.OpenThemesFolder?.();
   }
 
   async updateGuiResponseTime(): Promise<void> {
