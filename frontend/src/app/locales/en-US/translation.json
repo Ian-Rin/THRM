@@ -296,6 +296,8 @@
       "description": "After longer runtime, the target RPM at each temperature point is fine-tuned automatically so real temperatures stay closer to the configured curve. Learned offsets can be reset at any time.",
       "toggleAria": "Toggle adaptive learning",
       "biasTitle": "Learning bias",
+      "targetTitle": "Target temperature",
+      "targetDescription": "Adaptive learning tries to settle steady-state temperature near this ceiling. Lower values favor cooling; higher values favor silence.",
       "offsetTitle": "Learned offsets",
       "offsetDescription": "The main RPM corrections of the current learned curve relative to the base curve.",
       "reset": "Reset learning",

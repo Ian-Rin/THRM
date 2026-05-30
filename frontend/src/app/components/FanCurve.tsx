@@ -29,7 +29,7 @@ import { BS1_MANUAL_GEAR_PRESETS, getManualGearLabel, getManualLevelLabel, MANUA
 import { useTranslation } from 'react-i18next';
 import FanCurveProfileSelect from './FanCurveProfileSelect';
 import { toast } from 'sonner';
-import { ToggleSwitch, Button, Badge, Select, Slider, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/index';
+import { ToggleSwitch, Button, Badge, Select, Slider, NumberInput, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/index';
 import clsx from 'clsx';
 
 const LOW_RPM_WARNING_DATE_KEY = 'fanCurveLowRpmWarningDate';
@@ -37,6 +37,8 @@ const FAN_CURVE_MIN_TEMP = 30;
 const FAN_CURVE_MAX_TEMP = 110;
 const FAN_CURVE_TEMP_STEP = 5;
 const DEFAULT_CURVE_LENGTH = ((FAN_CURVE_MAX_TEMP - FAN_CURVE_MIN_TEMP) / FAN_CURVE_TEMP_STEP) + 1;
+const SMART_CONTROL_TARGET_TEMP_MIN = 45;
+const SMART_CONTROL_TARGET_TEMP_MAX = 90;
 type CurveProfile = { id: string; name: string; curve: types.FanCurvePoint[] };
 
 const LEARNING_BIAS_OPTIONS = [
@@ -57,6 +59,10 @@ function constrainOffsetByLearningBias(offset: number, learningBias: string) {
   if (learningBias === 'cooling' && offset < 0) return 0;
   if (learningBias === 'quiet' && offset > 0) return 0;
   return offset;
+}
+
+function normalizeTargetTemp(value: number) {
+  return Math.max(SMART_CONTROL_TARGET_TEMP_MIN, Math.min(SMART_CONTROL_TARGET_TEMP_MAX, Math.round(value)));
 }
 
 function syncCurveRpmAtIndex(
@@ -365,7 +371,7 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
     const normalizeRateOffsets = (source?: number[]) => Array.isArray(source) ? [...source.slice(0, 7), ...defaultRateOffsets].slice(0, 7) : defaultRateOffsets;
 
     if (!existing) {
-      return { enabled: true, learning: true, learningBias: 'balanced', filterTransientSpike: true, targetTemp: 68, aggressiveness: 5, hysteresis: 2, minRpmChange: 50, rampUpLimit: 220, rampDownLimit: 160, learnRate: 4, learnWindow: 6, learnDelay: 2, overheatWeight: 8, rpmDeltaWeight: 5, noiseWeight: 4, trendGain: 5, maxLearnOffset: 600, learnedOffsets: defaultOffsets, learnedOffsetsHeat: defaultOffsets, learnedOffsetsCool: defaultOffsets, learnedRateHeat: defaultRateOffsets, learnedRateCool: defaultRateOffsets };
+      return { enabled: true, learning: true, learningBias: 'balanced', filterTransientSpike: true, targetTemp: 68, aggressiveness: 5, hysteresis: 2, minRpmChange: 50, rampUpLimit: 220, rampDownLimit: 160, learnRate: 3, learnWindow: 8, learnDelay: 3, overheatWeight: 8, rpmDeltaWeight: 5, noiseWeight: 4, trendGain: 5, maxLearnOffset: 300, learnedOffsets: defaultOffsets, learnedOffsetsHeat: defaultOffsets, learnedOffsetsCool: defaultOffsets, learnedRateHeat: defaultRateOffsets, learnedRateCool: defaultRateOffsets };
     }
 
     return {
@@ -373,8 +379,9 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
       learning: existing.learning ?? true,
       learningBias: normalizeLearningBias((existing as any).learningBias),
       filterTransientSpike: existing.filterTransientSpike ?? true,
+      targetTemp: normalizeTargetTemp(existing.targetTemp ?? 68),
       hysteresis: Math.max(1, existing.hysteresis ?? 2),
-      learnWindow: existing.learnWindow ?? 6, learnDelay: existing.learnDelay ?? 2,
+      learnWindow: existing.learnWindow ?? 8, learnDelay: existing.learnDelay ?? 3,
       overheatWeight: existing.overheatWeight ?? 8, rpmDeltaWeight: existing.rpmDeltaWeight ?? 5,
       noiseWeight: existing.noiseWeight ?? 4, trendGain: existing.trendGain ?? 5,
       learnedOffsets: normalizeOffsets(existing.learnedOffsets),
@@ -396,6 +403,11 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
 
   const currentLearningBias = normalizeLearningBias((smartControl as any).learningBias);
   const currentLearningBiasOption = learningBiasOptions.find((option) => option.value === currentLearningBias) ?? learningBiasOptions[0];
+  const [targetTempDraft, setTargetTempDraft] = useState(() => normalizeTargetTemp((config.smartControl as any)?.targetTemp ?? 68));
+
+  useEffect(() => {
+    setTargetTempDraft(normalizeTargetTemp((smartControl as any).targetTemp ?? 68));
+  }, [smartControl.targetTemp]);
 
   useEffect(() => {
     if (!focusTarget) {
@@ -816,6 +828,31 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
     void updateSmartControlConfig({ learningBias: normalizeLearningBias(value) });
   }, [updateSmartControlConfig]);
 
+  const commitTargetTemp = useCallback((value: number) => {
+    const normalized = normalizeTargetTemp(value);
+    setTargetTempDraft(normalized);
+    if (normalized === normalizeTargetTemp((smartControl as any).targetTemp ?? 68)) {
+      return;
+    }
+    void updateSmartControlConfig({ targetTemp: normalized });
+  }, [smartControl.targetTemp, updateSmartControlConfig]);
+
+  const handleTargetTempSliderChange = useCallback((value: number) => {
+    setTargetTempDraft(normalizeTargetTemp(value));
+  }, []);
+
+  const handleTargetTempSliderCommit = useCallback(() => {
+    commitTargetTemp(targetTempDraft);
+  }, [commitTargetTemp, targetTempDraft]);
+
+  const handleTargetTempInputChange = useCallback((value: number) => {
+    setTargetTempDraft(normalizeTargetTemp(value));
+  }, []);
+
+  const handleTargetTempInputBlur = useCallback(() => {
+    commitTargetTemp(targetTempDraft);
+  }, [commitTargetTemp, targetTempDraft]);
+
   const handleResetLearnedOffsets = useCallback(async () => {
     setLearningResetLoading(true);
     try {
@@ -1077,6 +1114,39 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
                 size="sm"
                 className="w-full md:w-44"
               />
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card/55 p-3">
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-muted-foreground">{t('fanCurve.learning.targetTitle')}</div>
+                <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('fanCurve.learning.targetDescription')}</div>
+              </div>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <div className="min-w-0 flex-1">
+                  <Slider
+                    min={SMART_CONTROL_TARGET_TEMP_MIN}
+                    max={SMART_CONTROL_TARGET_TEMP_MAX}
+                    step={1}
+                    value={targetTempDraft}
+                    onChange={handleTargetTempSliderChange}
+                    onChangeEnd={handleTargetTempSliderCommit}
+                    valueFormatter={(value) => `${value}°C`}
+                    disabled={learningConfigLoading}
+                  />
+                </div>
+                <div className="w-full md:w-28">
+                  <NumberInput
+                    value={targetTempDraft}
+                    onChange={handleTargetTempInputChange}
+                    onBlur={handleTargetTempInputBlur}
+                    min={SMART_CONTROL_TARGET_TEMP_MIN}
+                    max={SMART_CONTROL_TARGET_TEMP_MAX}
+                    step={1}
+                    suffix="°C"
+                    disabled={learningConfigLoading}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

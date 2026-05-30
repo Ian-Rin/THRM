@@ -2391,6 +2391,10 @@ func (a *CoreApp) startTemperatureMonitoring() {
 				}
 
 				fanData := a.deviceManager.GetCurrentFanData()
+				observedRPM := targetRPM
+				if fanData != nil && fanData.CurrentRPM > 0 {
+					observedRPM = int(fanData.CurrentRPM)
+				}
 				if shouldSendTargetRPM(targetRPM, prevTargetRPM, smartCfg.MinRPMChange, fanData) {
 					if a.deviceManager.SetFanSpeed(targetRPM) {
 						lastTargetRPM = targetRPM
@@ -2401,7 +2405,7 @@ func (a *CoreApp) startTemperatureMonitoring() {
 				}
 
 				if smartCfg.Learning && !spikeSuppressed {
-					steady := steadyObserver.Observe(controlTemp, targetRPM, cfg.FanCurve)
+					steady := steadyObserver.Observe(controlTemp, observedRPM, cfg.FanCurve, smartCfg)
 					if steady.Ready && steady.BucketIdx >= 0 {
 						newOffsets, changed := smartcontrol.LearnSteadyOffset(
 							steady.BucketIdx,

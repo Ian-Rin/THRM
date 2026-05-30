@@ -10,18 +10,23 @@ const (
 	hardOffsetCap    = 600
 	stableTempBand   = 2
 	stableMinSamples = 6
-	neighborShare    = 3
+	stableRPMBand    = 120
 
 	// 冷却效率估计与转速寻优相关常量。
 	effHistoryLen    = 6      // 每个温度桶保留的稳态 (转速,温度) 样本数
 	minRPMSpanForEff = 80     // 估计冷却效率所需的最小转速跨度 (RPM)
 	effFloorPerRPM   = 0.0008 // 冷却效率下限 (°C/RPM)，防止步长发散
 	effCeilPerRPM    = 0.05   // 冷却效率上限 (°C/RPM)
-	defaultEffPerRPM = 0.004  // 无历史时的保守冷却效率 (≈0.4°C/100RPM)
-	maxLearnStep     = 300    // 单次学习的最大转速调整 (RPM)
-	learnStepDeadRPM = 12     // 小于此调整量则忽略，避免抖动
-	minSafetyStep    = 15     // 温度超目标时的最小降温步长 (RPM)
+	defaultEffPerRPM = 0.008  // 无历史时的保守冷却效率 (≈0.8°C/100RPM)
+	maxLearnStep     = 80     // 单次学习的最大转速调整 (RPM)
+	learnStepDeadRPM = 20     // 小于此调整量则忽略，避免抖动
+	minSafetyStep    = 20     // 温度超目标时的最小降温步长 (RPM)
 	defaultTargetTmp = 70     // TargetTemp 未配置时的回退目标温度 (°C)
+
+	offsetSmoothPasses         = 2
+	offsetSmoothPullLimit      = 30
+	offsetSmoothSelfWeight     = 0.7
+	offsetSmoothNeighborWeight = 0.15
 )
 
 // eqPoint 记录一次稳态 (转速, 温度) 平衡点。
@@ -46,6 +51,10 @@ type StableObserver struct {
 	samples    [][]int     // 每个温度桶的温度采样
 	rpmSamples [][]int     // 与 samples 平行的转速采样
 	history    [][]eqPoint // 每个温度桶最近的稳态平衡点
+	settle     []int       // 每个温度桶进入稳定采样前的延迟计数
+	lastTemps  []int       // 最近一次观测温度
+	lastRPMs   []int       // 最近一次观测到的实际转速
+	seen       []bool      // 最近观测是否有效
 }
 
 // NewStableObserver 创建针对当前曲线长度的观察者。
@@ -62,9 +71,13 @@ func (o *StableObserver) allocBuffers(curveLen int) {
 	o.samples = make([][]int, curveLen)
 	o.rpmSamples = make([][]int, curveLen)
 	o.history = make([][]eqPoint, curveLen)
+	o.settle = make([]int, curveLen)
+	o.lastTemps = make([]int, curveLen)
+	o.lastRPMs = make([]int, curveLen)
+	o.seen = make([]bool, curveLen)
 	for i := range o.samples {
-		o.samples[i] = make([]int, 0, stableMinSamples*2)
-		o.rpmSamples[i] = make([]int, 0, stableMinSamples*2)
+		o.samples[i] = make([]int, 0, 24)
+		o.rpmSamples[i] = make([]int, 0, 24)
 		o.history[i] = make([]eqPoint, 0, effHistoryLen)
 	}
 }
@@ -87,7 +100,28 @@ func (o *StableObserver) Reset() {
 	for i := range o.samples {
 		o.samples[i] = o.samples[i][:0]
 		o.rpmSamples[i] = o.rpmSamples[i][:0]
+		o.settle[i] = 0
+		o.lastTemps[i] = 0
+		o.lastRPMs[i] = 0
+		o.seen[i] = false
 	}
+}
+
+func stableSampleWindow(cfg types.SmartControlConfig) int {
+	window := cfg.LearnWindow
+	if window <= 0 {
+		window = stableMinSamples
+	}
+	return clampInt(window, 3, 24)
+}
+
+func stableSampleDelay(cfg types.SmartControlConfig) int {
+	delay := max(cfg.LearnDelay, 0)
+	return clampInt(delay, 0, 8)
+}
+
+func stableRPMRange(cfg types.SmartControlConfig) int {
+	return max(stableRPMBand, cfg.MinRPMChange)
 }
 
 // CurveLen 返回当前观察者的曲线长度。
@@ -118,25 +152,49 @@ func pickBucketIndex(temp int, curve []types.FanCurvePoint) int {
 	return len(curve) - 1
 }
 
-// Observe 把一次 (温度, 下发转速) 采样放入对应温度桶。
+// Observe 把一次 (温度, 实际转速) 采样放入对应温度桶。
 // 达到稳态时返回平均温度、平均转速及局部冷却效率估计。
-func (o *StableObserver) Observe(temp, effectiveRPM int, curve []types.FanCurvePoint) SteadyResult {
+func (o *StableObserver) Observe(temp, effectiveRPM int, curve []types.FanCurvePoint, cfg types.SmartControlConfig) SteadyResult {
 	idx := pickBucketIndex(temp, curve)
 	if idx < 0 || idx >= len(o.samples) {
 		return SteadyResult{BucketIdx: -1}
 	}
+	window := stableSampleWindow(cfg)
+	delay := stableSampleDelay(cfg)
+	rpmBand := stableRPMRange(cfg)
+
+	if o.seen[idx] {
+		tempJump := absInt(temp-o.lastTemps[idx]) > stableTempBand+1
+		rpmJump := effectiveRPM > 0 && o.lastRPMs[idx] > 0 && absInt(effectiveRPM-o.lastRPMs[idx]) > rpmBand
+		if tempJump || rpmJump {
+			o.samples[idx] = o.samples[idx][:0]
+			o.rpmSamples[idx] = o.rpmSamples[idx][:0]
+			o.settle[idx] = 0
+		}
+	} else {
+		o.seen[idx] = true
+		o.settle[idx] = 0
+	}
+	o.lastTemps[idx] = temp
+	o.lastRPMs[idx] = effectiveRPM
+
+	if o.settle[idx] < delay {
+		o.settle[idx]++
+		return SteadyResult{BucketIdx: idx}
+	}
 
 	o.samples[idx] = append(o.samples[idx], temp)
 	o.rpmSamples[idx] = append(o.rpmSamples[idx], effectiveRPM)
-	if len(o.samples[idx]) > stableMinSamples*2 {
-		o.samples[idx] = o.samples[idx][len(o.samples[idx])-stableMinSamples*2:]
-		o.rpmSamples[idx] = o.rpmSamples[idx][len(o.rpmSamples[idx])-stableMinSamples*2:]
+	if len(o.samples[idx]) > window {
+		o.samples[idx] = o.samples[idx][len(o.samples[idx])-window:]
+		o.rpmSamples[idx] = o.rpmSamples[idx][len(o.rpmSamples[idx])-window:]
 	}
 
-	if len(o.samples[idx]) < stableMinSamples {
+	if len(o.samples[idx]) < window {
 		return SteadyResult{BucketIdx: idx}
 	}
 	minT, maxT, sumT, sumR := o.samples[idx][0], o.samples[idx][0], 0, 0
+	minR, maxR := o.rpmSamples[idx][0], o.rpmSamples[idx][0]
 	for i, t := range o.samples[idx] {
 		if t < minT {
 			minT = t
@@ -144,10 +202,17 @@ func (o *StableObserver) Observe(temp, effectiveRPM int, curve []types.FanCurveP
 		if t > maxT {
 			maxT = t
 		}
+		rpm := o.rpmSamples[idx][i]
+		if rpm < minR {
+			minR = rpm
+		}
+		if rpm > maxR {
+			maxR = rpm
+		}
 		sumT += t
-		sumR += o.rpmSamples[idx][i]
+		sumR += rpm
 	}
-	if maxT-minT > stableTempBand {
+	if maxT-minT > stableTempBand || maxR-minR > rpmBand {
 		return SteadyResult{BucketIdx: idx}
 	}
 
@@ -155,6 +220,7 @@ func (o *StableObserver) Observe(temp, effectiveRPM int, curve []types.FanCurveP
 	meanR := sumR / len(o.rpmSamples[idx])
 	o.samples[idx] = o.samples[idx][:0]
 	o.rpmSamples[idx] = o.rpmSamples[idx][:0]
+	o.settle[idx] = 0
 
 	o.recordEquilibrium(idx, meanR, meanT)
 	eff, haveEff := o.localEfficiency(idx)
@@ -233,7 +299,7 @@ func alphaFromLearnRate(learnRate int) float64 {
 	if learnRate > 10 {
 		learnRate = 10
 	}
-	return 0.05 + float64(learnRate-1)*0.05
+	return 0.025 + float64(learnRate-1)*0.0125
 }
 
 // effectiveOffsetCap 取 cfg.MaxLearnOffset 和 hardOffsetCap 的较小值。
@@ -334,7 +400,6 @@ func LearnSteadyOffset(
 		return offsets, false
 	}
 
-	neighborDelta := mainDelta / neighborShare
 	cap := effectiveOffsetCap(cfg)
 	leftMin, rightMax := GetCurveRPMBounds(curve)
 
@@ -351,17 +416,23 @@ func LearnSteadyOffset(
 		)
 	}
 	apply(bucketIdx, mainDelta)
-	apply(bucketIdx-1, neighborDelta)
-	apply(bucketIdx+1, neighborDelta)
 	if biased, updated := constrainOffsetsToLearningBias(offsets, cfg.LearningBias); updated {
 		offsets = biased
 	}
 
+	smoothOffsets(curve, offsets, cap, leftMin, rightMax)
+	if biased, updated := constrainOffsetsToLearningBias(offsets, cfg.LearningBias); updated {
+		offsets = biased
+	}
 	enforceMonotonicWithOffsets(curve, offsets, cap, leftMin, rightMax)
 	if biased, updated := constrainOffsetsToLearningBias(offsets, cfg.LearningBias); updated {
 		offsets = biased
-		enforceMonotonicWithOffsets(curve, offsets, cap, leftMin, rightMax)
 	}
+	smoothOffsets(curve, offsets, cap, leftMin, rightMax)
+	if biased, updated := constrainOffsetsToLearningBias(offsets, cfg.LearningBias); updated {
+		offsets = biased
+	}
+	enforceMonotonicWithOffsets(curve, offsets, cap, leftMin, rightMax)
 
 	changed := false
 	for i := range offsets {
@@ -379,6 +450,33 @@ func roundFloat(v float64) int {
 		return int(v + 0.5)
 	}
 	return int(v - 0.5)
+}
+
+func smoothOffsets(curve []types.FanCurvePoint, offsets []int, cap, leftMin, rightMax int) {
+	limit := min(len(offsets), len(curve))
+	if limit < 3 {
+		return
+	}
+	work := make([]int, len(offsets))
+	copy(work, offsets)
+	for range offsetSmoothPasses {
+		copy(work, offsets)
+		for i := 1; i < limit-1; i++ {
+			target := roundFloat(
+				offsetSmoothSelfWeight*float64(offsets[i]) +
+					offsetSmoothNeighborWeight*float64(offsets[i-1]) +
+					offsetSmoothNeighborWeight*float64(offsets[i+1]),
+			)
+			pull := target - offsets[i]
+			if pull > offsetSmoothPullLimit {
+				target = offsets[i] + offsetSmoothPullLimit
+			} else if pull < -offsetSmoothPullLimit {
+				target = offsets[i] - offsetSmoothPullLimit
+			}
+			work[i] = clampOffsetForPoint(target, curve[i].RPM, leftMin, rightMax, cap)
+		}
+		copy(offsets, work)
+	}
 }
 
 // enforceMonotonicWithOffsets 确保 (RPM_i + Δ_i) 沿 i 非递减；

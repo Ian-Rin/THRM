@@ -296,6 +296,8 @@
       "description": "长时间运行后，自动微调每个温度点的目标转速，使实际温度更贴近曲线设定值。学到的偏移随时可一键重置。",
       "toggleAria": "切换自适应学习",
       "biasTitle": "学习倾向",
+      "targetTitle": "目标温度",
+      "targetDescription": "学习模式会尽量把稳态温度收敛到这个上限附近。调低更偏散热，调高更偏静音。",
       "offsetTitle": "学习偏移",
       "offsetDescription": "当前学习曲线相对基础曲线的主要 RPM 修正点。",
       "reset": "重置学习",

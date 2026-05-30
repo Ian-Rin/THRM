@@ -104,6 +104,27 @@ func TestLearnSteadyOffsetRespectsLearningBias(t *testing.T) {
 	}
 }
 
+func TestStableObserverUsesConfiguredWindowAndDelay(t *testing.T) {
+	curve := []types.FanCurvePoint{{Temperature: 60, RPM: 1800}}
+	observer := NewStableObserver(len(curve))
+	cfg := types.SmartControlConfig{
+		LearnWindow:    4,
+		LearnDelay:     2,
+		MinRPMChange:   50,
+		TargetTemp:     68,
+		MaxLearnOffset: 300,
+	}
+
+	for i := range 5 {
+		if steady := observer.Observe(60, 1800, curve, cfg); steady.Ready {
+			t.Fatalf("sample %d unexpectedly reached steady state", i)
+		}
+	}
+	if steady := observer.Observe(60, 1800, curve, cfg); !steady.Ready {
+		t.Fatalf("expected steady state after configured delay+window")
+	}
+}
+
 func TestLearnSteadyOffsetHoldsInComfortBand(t *testing.T) {
 	curve := []types.FanCurvePoint{
 		{Temperature: 50, RPM: 1000},
@@ -118,6 +139,33 @@ func TestLearnSteadyOffsetHoldsInComfortBand(t *testing.T) {
 	// 舒适带为 [70-5, 70] = [65,70]，带内不应再调整（消除“无脑降温”）。
 	if offsets, changed := LearnSteadyOffset(1, 68, 0, false, curve, []int{0, 0}, cfg); changed {
 		t.Fatalf("in-band steady temp should not change offsets, got %v changed=%v", offsets, changed)
+	}
+}
+
+func TestLearnSteadyOffsetOnlyAdjustsLocalBucket(t *testing.T) {
+	curve := []types.FanCurvePoint{
+		{Temperature: 50, RPM: 1000},
+		{Temperature: 70, RPM: 2000},
+		{Temperature: 90, RPM: 3000},
+	}
+	cfg := types.SmartControlConfig{
+		TargetTemp:     70,
+		Hysteresis:     2,
+		LearnRate:      10,
+		MaxLearnOffset: 300,
+	}
+	offsets, changed := LearnSteadyOffset(1, 82, 0, false, curve, []int{0, 0, 0}, cfg)
+	if !changed {
+		t.Fatalf("expected local bucket learning to change offsets")
+	}
+	if offsets[1] <= 0 {
+		t.Fatalf("expected middle bucket offset to increase, got %v", offsets)
+	}
+	if offsets[0] != 0 || offsets[2] != 0 {
+		t.Fatalf("expected neighboring buckets to remain unchanged, got %v", offsets)
+	}
+	if offsets[1] >= 80 {
+		t.Fatalf("expected smoothing to keep a single-step change below the hard step cap, got %v", offsets)
 	}
 }
 
