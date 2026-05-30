@@ -1,24 +1,30 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/TIANLI0/BS2PRO-Controller/internal/coreapp"
 )
 
+//go:embed icon.ico
+var iconData []byte
+
 func main() {
-	var app *CoreApp
+	var app *coreapp.CoreApp
 
 	defer func() {
 		if r := recover(); r != nil {
-			capturePanic(app, "main", r)
+			coreapp.CapturePanic(app, "main", r)
 
 			if app != nil {
 				func() {
 					defer func() {
 						if stopPanic := recover(); stopPanic != nil {
-							capturePanic(app, "main.Stop", stopPanic)
+							coreapp.CapturePanic(app, "main.Stop", stopPanic)
 						}
 					}()
 					app.Stop()
@@ -43,7 +49,7 @@ func main() {
 	}
 
 	// 创建核心应用
-	app = NewCoreApp(debugMode, isAutoStart)
+	app = coreapp.NewCoreApp(debugMode, isAutoStart, iconData)
 
 	// 启动应用
 	if err := app.Start(); err != nil {
@@ -56,9 +62,9 @@ func main() {
 
 	select {
 	case <-sigChan:
-		app.logInfo("收到系统退出信号")
-	case <-app.quitChan:
-		app.logInfo("收到应用退出请求")
+		app.LogInfo("收到系统退出信号")
+	case <-app.QuitChan():
+		app.LogInfo("收到应用退出请求")
 	}
 
 	app.Stop()

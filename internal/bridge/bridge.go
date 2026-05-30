@@ -458,14 +458,18 @@ func (m *Manager) GetTemperature(selection types.TemperatureSelection) types.Bri
 // GetStatus 获取桥接程序状态
 func (m *Manager) GetStatus() map[string]any {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	state := m.state
+	ownsCmd := m.ownsCmd
+	pipeName := m.pipeName
+	lastError := m.lastError
+	m.mutex.Unlock()
 
 	exeDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
 		return map[string]any{
 			"exists": false,
 			"error":  fmt.Sprintf("获取程序目录失败: %v", err),
-			"state":  m.state,
+			"state":  state,
 		}
 	}
 
@@ -475,10 +479,10 @@ func (m *Manager) GetStatus() map[string]any {
 	if bridgePath == "" {
 		return map[string]any{
 			"exists":      false,
-			"state":       m.state,
-			"ownsProcess": m.ownsCmd,
-			"pipeName":    m.pipeName,
-			"lastError":   m.lastError,
+			"state":       state,
+			"ownsProcess": ownsCmd,
+			"pipeName":    pipeName,
+			"lastError":   lastError,
 			"triedPaths":  possiblePaths,
 			"error":       fmt.Sprintf("%s 不存在", appmeta.BridgeExecutableName),
 		}
@@ -486,14 +490,21 @@ func (m *Manager) GetStatus() map[string]any {
 
 	testResult := m.GetTemperature(types.GetDefaultTemperatureSelection())
 
+	m.mutex.Lock()
+	state = m.state
+	ownsCmd = m.ownsCmd
+	pipeName = m.pipeName
+	lastError = m.lastError
+	m.mutex.Unlock()
+
 	return map[string]any{
 		"exists":      true,
 		"path":        bridgePath,
 		"working":     testResult.Success,
-		"state":       m.state,
-		"ownsProcess": m.ownsCmd,
-		"pipeName":    m.pipeName,
-		"lastError":   m.lastError,
+		"state":       state,
+		"ownsProcess": ownsCmd,
+		"pipeName":    pipeName,
+		"lastError":   lastError,
 		"testData":    testResult,
 	}
 }

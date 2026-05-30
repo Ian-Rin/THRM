@@ -1,4 +1,4 @@
-package main
+package coreapp
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"github.com/TIANLI0/BS2PRO-Controller/internal/config"
 )
 
-func capturePanic(app *CoreApp, source string, recovered any) string {
+func CapturePanic(app *CoreApp, source string, recovered any) string {
 	stack := debug.Stack()
 	logDir := resolveCrashLogDir(app)
 

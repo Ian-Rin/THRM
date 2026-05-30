@@ -2,9 +2,12 @@
 package temperature
 
 import (
+	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -13,10 +16,24 @@ import (
 	"github.com/shirou/gopsutil/v4/sensors"
 )
 
+const (
+	helperCommandTimeout = 1200 * time.Millisecond
+	gpuVendorCacheTTL    = 30 * time.Second
+)
+
+var (
+	execHelperCommand = execCommandHiddenWithTimeout
+	readTimeNow       = time.Now
+)
+
 // Reader 温度读取器
 type Reader struct {
 	bridgeManager *bridge.Manager
 	logger        types.Logger
+
+	cacheMutex       sync.RWMutex
+	cachedGPUVendor  string
+	cachedVendorAt   time.Time
 }
 
 // NewReader 创建新的温度读取器
@@ -145,9 +162,13 @@ func (r *Reader) readGPUTemperature() int {
 
 // readWindowsCPUTemp 通过WMI读取Windows CPU温度
 func (r *Reader) readWindowsCPUTemp() int {
-	output, err := execCommandHidden("wmic", "/namespace:\\\\root\\wmi", "PATH", "MSAcpi_ThermalZoneTemperature", "get", "CurrentTemperature", "/value")
+	output, err := execHelperCommand(helperCommandTimeout, "wmic", "/namespace:\\\\root\\wmi", "PATH", "MSAcpi_ThermalZoneTemperature", "get", "CurrentTemperature", "/value")
 	if err != nil {
-		r.logger.Debug("读取Windows CPU温度失败: %v", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			r.logger.Debug("读取Windows CPU温度超时: %v", err)
+		} else {
+			r.logger.Debug("读取Windows CPU温度失败: %v", err)
+		}
 		return 0
 	}
 
@@ -173,12 +194,30 @@ func (r *Reader) readWindowsCPUTemp() int {
 
 // detectGPUVendor 检测GPU厂商
 func (r *Reader) detectGPUVendor() string {
+	now := readTimeNow()
+	r.cacheMutex.RLock()
+	if cached := r.cachedGPUVendor; cached != "" && now.Sub(r.cachedVendorAt) < gpuVendorCacheTTL {
+		r.cacheMutex.RUnlock()
+		return cached
+	}
+	r.cacheMutex.RUnlock()
+
+	vendor := "unknown"
 	// 尝试NVIDIA
-	if _, err := execCommandHidden("nvidia-smi", "--version"); err == nil {
-		return "nvidia"
+	if _, err := execHelperCommand(helperCommandTimeout, "nvidia-smi", "--version"); err == nil {
+		vendor = "nvidia"
+	} else if !errors.Is(err, context.DeadlineExceeded) {
+		r.logger.Debug("检测GPU厂商失败: %v", err)
+	} else {
+		r.logger.Debug("检测GPU厂商超时: %v", err)
 	}
 
-	return "unknown"
+	r.cacheMutex.Lock()
+	r.cachedGPUVendor = vendor
+	r.cachedVendorAt = now
+	r.cacheMutex.Unlock()
+
+	return vendor
 }
 
 // readGPUTempByVendor 根据厂商读取GPU温度
@@ -195,9 +234,13 @@ func (r *Reader) readGPUTempByVendor(vendor string) int {
 
 // readNvidiaGPUTemp 安全读取NVIDIA GPU温度
 func (r *Reader) readNvidiaGPUTemp() int {
-	output, err := execCommandHidden("nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits")
+	output, err := execHelperCommand(helperCommandTimeout, "nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits")
 	if err != nil {
-		r.logger.Debug("读取NVIDIA GPU温度失败: %v", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			r.logger.Debug("读取NVIDIA GPU温度超时: %v", err)
+		} else {
+			r.logger.Debug("读取NVIDIA GPU温度失败: %v", err)
+		}
 		return 0
 	}
 
@@ -213,15 +256,26 @@ func (r *Reader) readNvidiaGPUTemp() int {
 	return 0
 }
 
-// execCommandHidden 执行命令并隐藏窗口
-func execCommandHidden(name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+// execCommandHiddenWithTimeout 执行命令并隐藏窗口，避免备用读取无限阻塞监控循环。
+func execCommandHiddenWithTimeout(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	ctx := context.Background()
+	cancel := func() {}
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}
 
-	return cmd.Output()
+	output, err := cmd.Output()
+	if timeout > 0 && ctx.Err() != nil {
+		return output, ctx.Err()
+	}
+	return output, err
 }
 
 // CalculateTargetRPM 根据温度计算目标转速

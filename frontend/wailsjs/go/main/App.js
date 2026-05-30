@@ -102,6 +102,10 @@ export function ManualSetFanSpeed(arg1) {
   return window['go']['main']['App']['ManualSetFanSpeed'](arg1);
 }
 
+export function OnWindowClosing(arg1) {
+  return window['go']['main']['App']['OnWindowClosing'](arg1);
+}
+
 export function OpenThemesFolder() {
   return window['go']['main']['App']['OpenThemesFolder']();
 }
@@ -188,6 +192,10 @@ export function SetWindowsAutoStart(arg1) {
 
 export function ShowWindow() {
   return window['go']['main']['App']['ShowWindow']();
+}
+
+export function Startup(arg1) {
+  return window['go']['main']['App']['Startup'](arg1);
 }
 
 export function TestBridgeProgram() {

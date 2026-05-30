@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package powernotify
 
 import (
 	"fmt"
@@ -32,8 +32,8 @@ type deviceNotifySubscribeParameters struct {
 	context  uintptr
 }
 
-// powerNotifier 持有注册句柄与回调，防止其被 GC 回收。
-type powerNotifier struct {
+// notifier 持有注册句柄与回调，防止其被 GC 回收。
+type notifier struct {
 	handle    uintptr
 	params    deviceNotifySubscribeParameters
 	callback  uintptr
@@ -42,13 +42,13 @@ type powerNotifier struct {
 	stopOnce  sync.Once
 }
 
-// registerSuspendResumeNotifications 注册系统睡眠/唤醒通知。
-func registerSuspendResumeNotifications(onSuspend, onResume func()) (func(), error) {
+// RegisterSuspendResumeNotifications 注册系统睡眠/唤醒通知。
+func RegisterSuspendResumeNotifications(onSuspend, onResume func()) (func(), error) {
 	if err := procPowerRegisterSuspendResumeNotification.Find(); err != nil {
 		return nil, fmt.Errorf("当前系统不支持电源通知注册: %w", err)
 	}
 
-	pn := &powerNotifier{
+	pn := &notifier{
 		onSuspend: onSuspend,
 		onResume:  onResume,
 	}
@@ -78,7 +78,6 @@ func registerSuspendResumeNotifications(onSuspend, onResume func()) (func(), err
 		uintptr(unsafe.Pointer(&pn.params)),
 		uintptr(unsafe.Pointer(&pn.handle)),
 	)
-	// 成功返回 ERROR_SUCCESS(0)
 	if ret != 0 {
 		return nil, fmt.Errorf("注册电源通知失败，错误码=%d: %v", ret, err)
 	}
