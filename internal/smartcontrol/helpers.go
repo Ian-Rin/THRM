@@ -89,36 +89,6 @@ func constrainOffsetsToLearningBias(offsets []int, learningBias string) ([]int, 
 	return normalized, updated
 }
 
-func intSlicesEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func nearestCurveIndex(temp int, curve []types.FanCurvePoint) int {
-	if len(curve) == 0 {
-		return 0
-	}
-
-	idx := 0
-	bestDistance := absInt(curve[0].Temperature - temp)
-	for i := 1; i < len(curve); i++ {
-		distance := absInt(curve[i].Temperature - temp)
-		if distance < bestDistance {
-			bestDistance = distance
-			idx = i
-		}
-	}
-
-	return idx
-}
-
 func clampInt(value, minValue, maxValue int) int {
 	if value < minValue {
 		return minValue
@@ -200,20 +170,6 @@ func FilterTransientSpike(currentTemp int, recentTemps []int, targetTemp, hyster
 	}
 
 	return currentTemp, false
-}
-
-// isSustainedAboveThreshold 检查最近的温度读数是否持续高于指定阈值至少 minCount 次。
-func isSustainedAboveThreshold(temps []int, threshold, minCount int) bool {
-	if minCount <= 0 || len(temps) < minCount {
-		return false
-	}
-	start := len(temps) - minCount
-	for i := start; i < len(temps); i++ {
-		if temps[i] < threshold {
-			return false
-		}
-	}
-	return true
 }
 
 func enforceNonDecreasingRPM(curve []types.FanCurvePoint) {
