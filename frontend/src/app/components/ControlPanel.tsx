@@ -28,7 +28,7 @@ import {
 import { apiService } from '../services/api';
 import { types } from '../../../wailsjs/go/models';
 import { toast } from 'sonner';
-import { DebugInfo, type ThemeMeta } from '../types/app';
+import { DebugInfo, type DeviceDebugCommandResult, type DeviceSettings, type ThemeMeta } from '../types/app';
 import { type AppLocale, useLocale } from '../lib/i18n';
 import { getManualGearLabel, getManualLevelLabel } from '../lib/manualGearPresets';
 import FanCurveProfileSelect from './FanCurveProfileSelect';
@@ -45,9 +45,11 @@ interface ControlPanelProps {
   temperature: types.TemperatureData | null;
   legionFnQSupported: boolean;
   deviceModel: string | null;
+  deviceSettings: DeviceSettings | null;
 }
 
 type CurveProfile = { id: string; name: string; curve: types.FanCurvePoint[] };
+type ParsedGearTable = { type?: string; table?: Array<{ gear?: number; label?: string; rpm?: number }> };
 
 /* ── Helpers ── */
 
@@ -84,6 +86,16 @@ function normalizeLightStripConfig(config: types.AppConfig): types.LightStripCon
   return normalized;
 }
 
+function renderDebugFrameSummary(frame: { decoded?: string; parsed?: unknown; command?: string; payloadHex?: string }) {
+  const parsed = frame.parsed as ParsedGearTable | null | undefined;
+  if (parsed?.type === 'gearRpmTable' && Array.isArray(parsed.table)) {
+    return parsed.table
+      .map((item) => `${item.label || item.gear}: ${item.rpm} RPM`)
+      .join(' | ');
+  }
+  return frame.decoded || `${frame.command || '--'} ${frame.payloadHex || ''}`.trim();
+}
+
 function rgbToHex(color: types.RGBColor): string {
   const h = (v: number) => v.toString(16).padStart(2, '0');
   return `#${h(color.r || 0)}${h(color.g || 0)}${h(color.b || 0)}`;
@@ -106,6 +118,21 @@ function getRequiredColorCount(mode: string): number {
 const LEGION_POWER_MODE_VALUES = ['Quiet', 'Balance', 'Performance', 'Extreme', 'GodMode'] as const;
 const FAN_GEAR_VALUES = ['静音', '标准', '强劲', '超频'] as const;
 const FAN_LEVEL_VALUES = ['低', '中', '高'] as const;
+
+// 高危调试命令：直接读写固件底层/调试寄存器，误用可能导致设备异常甚至变砖，需在发送前红色提醒。
+const DANGEROUS_DEBUG_COMMANDS = new Set<number>([0xed, 0xee, 0xf0, 0xf1, 0xf2]);
+
+// 从用户输入中解析出命令字节：兼容 "27" 与 "5A A5 27 02 29"（带帧头时命令为第三字节）。
+function parseDebugCommandByte(input: string): number | null {
+  const bytes = input
+    .trim()
+    .split(/[^0-9a-fA-F]+/)
+    .filter(Boolean)
+    .map((h) => Number.parseInt(h, 16));
+  if (bytes.length === 0 || bytes.some((b) => Number.isNaN(b))) return null;
+  if (bytes.length >= 3 && bytes[0] === 0x5a && bytes[1] === 0xa5) return bytes[2];
+  return bytes[0];
+}
 
 // 模块级常量：在组件外定义，所有 render 共享同一个引用，避免每次重渲染都新建数组导致下游 Select 等组件 props 引用变化。
 const SMART_START_STOP_OPTIONS = [
@@ -408,6 +435,11 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [debugInfoLoading, setDebugInfoLoading] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [debugCommandInput, setDebugCommandInput] = useState('27');
+  const [debugCommandResult, setDebugCommandResult] = useState<DeviceDebugCommandResult | null>(null);
+  const [debugCommandLoading, setDebugCommandLoading] = useState(false);
+  const debugCommandByte = useMemo(() => parseDebugCommandByte(debugCommandInput), [debugCommandInput]);
+  const isDangerousDebugCommand = debugCommandByte !== null && DANGEROUS_DEBUG_COMMANDS.has(debugCommandByte);
   const [showCustomSpeedWarning, setShowCustomSpeedWarning] = useState(false);
   // 安装目录/用户目录下发现的自定义主题（用于「界面主题」下拉动态渲染）
   const [customThemes, setCustomThemes] = useState<ThemeMeta[]>([]);
@@ -607,6 +639,21 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     setDebugInfoLoading(true);
     try { setDebugInfo(await apiService.getDebugInfo()); } catch { /* noop */ } finally { setDebugInfoLoading(false); }
   }, []);
+
+  const sendDeviceDebugCommand = useCallback(async (command?: string) => {
+    const hexCommand = (command ?? debugCommandInput).trim();
+    if (!hexCommand || !isConnected || !config.debugMode) return;
+    setDebugCommandLoading(true);
+    try {
+      const result = await apiService.sendDeviceDebugCommand(hexCommand, 900);
+      setDebugCommandResult(result);
+      toast.success(`已发送 ${result.frameHex}`);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setDebugCommandLoading(false);
+    }
+  }, [config.debugMode, debugCommandInput, isConnected]);
 
   const handleReinstallPawnIO = useCallback(async () => {
     setLoading('pawnIOReinstall', true);
@@ -1671,10 +1718,60 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
                 </div>
 
                 {debugInfo && (
-                  <div className="min-h-56 max-h-[min(55vh,30rem)] w-full overflow-auto rounded-xl border border-border bg-background overscroll-contain">
-                    <pre className="min-w-max p-3 font-mono text-xs leading-5 text-foreground/90 whitespace-pre">{JSON.stringify(debugInfo, null, 2)}</pre>
+                  <div className="min-h-56 max-h-[min(55vh,30rem)] w-full cursor-text overflow-auto rounded-xl border border-border bg-background overscroll-contain select-text">
+                    <pre className="min-w-max whitespace-pre p-3 font-mono text-xs leading-5 text-foreground/90">{JSON.stringify(debugInfo, null, 2)}</pre>
                   </div>
                 )}
+
+                <div className="rounded-xl border border-border/70 bg-background px-3 py-3">
+                  <div className="flex gap-2">
+                    <input
+                      value={debugCommandInput}
+                      onChange={(event) => setDebugCommandInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void sendDeviceDebugCommand();
+                      }}
+                      placeholder="27 或 5A A5 27 02 29"
+                      className={clsx(
+                        'h-9 min-w-0 flex-1 rounded-md border bg-background px-3 font-mono text-xs outline-none ring-offset-background transition-colors focus-visible:ring-2',
+                        isDangerousDebugCommand
+                          ? 'border-red-500 text-red-600 focus-visible:ring-red-500 dark:text-red-400'
+                          : 'border-input focus-visible:ring-ring',
+                      )}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => sendDeviceDebugCommand()}
+                      loading={debugCommandLoading}
+                      disabled={!isConnected || !config.debugMode}
+                      icon={<Play className="h-3.5 w-3.5" />}
+                    >
+                      发送
+                    </Button>
+                  </div>
+                  <div className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-red-600 dark:text-red-400">
+                    <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
+                    {isDangerousDebugCommand ? (
+                      <span className="font-semibold">
+                        高危命令 0x{debugCommandByte?.toString(16).toUpperCase().padStart(2, '0')}：直接操作固件底层/调试寄存器，误用可能导致设备异常甚至变砖，请确认后再发送。
+                      </span>
+                    ) : (
+                      <span>原始命令会直接下发到设备固件，错误命令可能导致设备异常，请谨慎操作。</span>
+                    )}
+                  </div>
+                  {debugCommandResult && (
+                    <div className="mt-3 max-h-48 cursor-text overflow-auto rounded-md bg-muted/45 p-2 font-mono text-[11px] leading-5 select-text">
+                      <div>TX {debugCommandResult.rawHex}</div>
+                      {(debugCommandResult.frames || []).map((frame) => (
+                        <div key={frame.id} className={frame.direction === 'rx' ? 'text-emerald-600 dark:text-emerald-400' : 'text-sky-600 dark:text-sky-400'}>
+                          <div>{frame.direction.toUpperCase()} {frame.command || '--'} {frame.frameHex || frame.rawHex} {frame.checksumOk ? 'OK' : 'BAD'}</div>
+                          {frame.decoded && <div className="pl-4 text-foreground/80">{renderDebugFrameSummary(frame)}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </CollapsibleContent>
           </div>

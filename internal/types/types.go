@@ -1,6 +1,8 @@
 // Package types 定义了 BS2PRO 控制器应用中使用的所有共享类型
 package types
 
+import "github.com/TIANLI0/THRM/internal/deviceproto"
+
 // FanCurvePoint 风扇曲线点
 type FanCurvePoint struct {
 	Temperature int `json:"temperature"` // 温度 °C
@@ -174,6 +176,73 @@ type FanData struct {
 	WorkMode     string `json:"workMode"`
 }
 
+// DeviceDebugFrame is a captured low-level device protocol frame.
+type DeviceDebugFrame struct {
+	ID          uint64 `json:"id"`
+	Direction   string `json:"direction"`
+	Transport   string `json:"transport"`
+	Timestamp   string `json:"timestamp"`
+	RawHex      string `json:"rawHex"`
+	FrameHex    string `json:"frameHex"`
+	Command     string `json:"command"`
+	Length      int    `json:"length"`
+	PayloadHex  string `json:"payloadHex"`
+	ChecksumOK  bool   `json:"checksumOk"`
+	Description string `json:"description"`
+	Decoded     string `json:"decoded,omitempty"`
+	Parsed      any    `json:"parsed,omitempty"`
+}
+
+// DeviceSettings contains settings read back from the device firmware.
+type DeviceSettings struct {
+	Available    bool               `json:"available"`
+	Source       string             `json:"source"`
+	ReadAt       string             `json:"readAt"`
+	Model        string             `json:"model,omitempty"`
+	GearRPMTable []DeviceGearRPM    `json:"gearRpmTable,omitempty"`
+	WorkMode     string             `json:"workMode,omitempty"`
+	WorkModeName string             `json:"workModeName,omitempty"`
+	RGBState     string             `json:"rgbState,omitempty"`
+	RGBStateName string             `json:"rgbStateName,omitempty"`
+	Status       *DeviceStatusRead  `json:"status,omitempty"`
+	RawFrames    []DeviceDebugFrame `json:"rawFrames,omitempty"`
+}
+
+type DeviceGearRPM struct {
+	Gear  int    `json:"gear"`
+	Label string `json:"label"`
+	RPM   int    `json:"rpm"`
+}
+
+type DeviceStatusRead struct {
+	GearSetting        string `json:"gearSetting,omitempty"`
+	MaxGear            string `json:"maxGear,omitempty"`
+	Selected           string `json:"selected,omitempty"`
+	Mode               string `json:"mode,omitempty"`
+	ModeName           string `json:"modeName,omitempty"`
+	SmartStartStop     string `json:"smartStartStop,omitempty"`
+	SmartStartStopName string `json:"smartStartStopName,omitempty"`
+	CurrentRPM         int    `json:"currentRpm,omitempty"`
+	TargetRPM          int    `json:"targetRpm,omitempty"`
+}
+
+// DeviceDebugCommandPreset describes a safe command that can be sent from the debug panel.
+type DeviceDebugCommandPreset struct {
+	Name        string `json:"name"`
+	CommandHex  string `json:"commandHex"`
+	Description string `json:"description"`
+}
+
+// DeviceDebugCommandResult is returned after sending a debug command.
+type DeviceDebugCommandResult struct {
+	Transport string             `json:"transport"`
+	InputHex  string             `json:"inputHex"`
+	FrameHex  string             `json:"frameHex"`
+	RawHex    string             `json:"rawHex"`
+	WaitMs    int                `json:"waitMs"`
+	Frames    []DeviceDebugFrame `json:"frames"`
+}
+
 // GearCommand 挡位命令结构
 type GearCommand struct {
 	Name    string `json:"name"`    // 挡位名称
@@ -305,38 +374,39 @@ type SmartControlConfig struct {
 
 // AppConfig 应用配置
 type AppConfig struct {
-	LegionFnQ                LegionFnQConfig       `json:"legionFnQ"`
-	LegionFnQSupport         LegionFnQSupportCache `json:"legionFnQSupport"`
-	AutoControl              bool                  `json:"autoControl"`              // 智能变频开关
-	ManualGearToggleHotkey   string                `json:"manualGearToggleHotkey"`   // 切换手动挡位快捷键
-	AutoControlToggleHotkey  string                `json:"autoControlToggleHotkey"`  // 开关智能变频快捷键
-	CurveProfileToggleHotkey string                `json:"curveProfileToggleHotkey"` // 切换温控曲线方案快捷键
-	ManualGearLevels         map[string]string     `json:"manualGearLevels"`         // 每个大挡位记忆的小挡位(低中高)
-	FanCurve                 []FanCurvePoint       `json:"fanCurve"`                 // 风扇曲线
-	FanCurveProfiles         []FanCurveProfile     `json:"fanCurveProfiles"`         // 风扇曲线方案列表
-	ActiveFanCurveProfileID  string                `json:"activeFanCurveProfileId"`  // 当前激活曲线方案ID
-	GearLight                bool                  `json:"gearLight"`                // 挡位灯
-	PowerOnStart             bool                  `json:"powerOnStart"`             // 通电自启动
-	WindowsAutoStart         bool                  `json:"windowsAutoStart"`         // Windows开机自启动
-	ThemeMode                string                `json:"themeMode"`                // 主题模式: system/light/dark/thrm
-	SmartStartStop           string                `json:"smartStartStop"`           // 智能启停
-	Brightness               int                   `json:"brightness"`               // 亮度
-	TempUpdateRate           int                   `json:"tempUpdateRate"`           // 温度更新频率(秒)
-	TempSampleCount          int                   `json:"tempSampleCount"`          // 温度采样次数(用于平均)
-	TempSource               string                `json:"tempSource"`               // 控温温度来源: max/cpu/gpu
-	GpuDevice                string                `json:"gpuDevice"`                // GPU 设备选择: auto 或设备 key
-	CpuSensor                string                `json:"cpuSensor"`                // CPU 传感器选择: auto 或传感器 key
-	GpuSensor                string                `json:"gpuSensor"`                // GPU 传感器选择: auto 或传感器 key
-	ConfigPath               string                `json:"configPath"`               // 配置文件路径
-	ManualGear               string                `json:"manualGear"`               // 手动挡位设置
-	ManualLevel              string                `json:"manualLevel"`              // 手动挡位级别(低中高)
-	DebugMode                bool                  `json:"debugMode"`                // 调试模式
-	GuiMonitoring            bool                  `json:"guiMonitoring"`            // GUI监控开关
-	CustomSpeedEnabled       bool                  `json:"customSpeedEnabled"`       // 自定义转速开关
-	CustomSpeedRPM           int                   `json:"customSpeedRPM"`           // 自定义转速值(无上下限)
-	IgnoreDeviceOnReconnect  bool                  `json:"ignoreDeviceOnReconnect"`  // 断连后忽略设备状态(保持APP配置)
-	SmartControl             SmartControlConfig    `json:"smartControl"`             // 学习型智能控温配置
-	LightStrip               LightStripConfig      `json:"lightStrip"`               // 灯带配置
+	LegionFnQ                LegionFnQConfig           `json:"legionFnQ"`
+	LegionFnQSupport         LegionFnQSupportCache     `json:"legionFnQSupport"`
+	AutoControl              bool                      `json:"autoControl"`              // 智能变频开关
+	ManualGearToggleHotkey   string                    `json:"manualGearToggleHotkey"`   // 切换手动挡位快捷键
+	AutoControlToggleHotkey  string                    `json:"autoControlToggleHotkey"`  // 开关智能变频快捷键
+	CurveProfileToggleHotkey string                    `json:"curveProfileToggleHotkey"` // 切换温控曲线方案快捷键
+	ManualGearLevels         map[string]string         `json:"manualGearLevels"`         // 每个大挡位记忆的小挡位(低中高)
+	ManualGearRPM            map[string]map[string]int `json:"manualGearRpm"`            // 每个大挡位低/中/高的自定义转速
+	FanCurve                 []FanCurvePoint           `json:"fanCurve"`                 // 风扇曲线
+	FanCurveProfiles         []FanCurveProfile         `json:"fanCurveProfiles"`         // 风扇曲线方案列表
+	ActiveFanCurveProfileID  string                    `json:"activeFanCurveProfileId"`  // 当前激活曲线方案ID
+	GearLight                bool                      `json:"gearLight"`                // 挡位灯
+	PowerOnStart             bool                      `json:"powerOnStart"`             // 通电自启动
+	WindowsAutoStart         bool                      `json:"windowsAutoStart"`         // Windows开机自启动
+	ThemeMode                string                    `json:"themeMode"`                // 主题模式: system/light/dark/thrm
+	SmartStartStop           string                    `json:"smartStartStop"`           // 智能启停
+	Brightness               int                       `json:"brightness"`               // 亮度
+	TempUpdateRate           int                       `json:"tempUpdateRate"`           // 温度更新频率(秒)
+	TempSampleCount          int                       `json:"tempSampleCount"`          // 温度采样次数(用于平均)
+	TempSource               string                    `json:"tempSource"`               // 控温温度来源: max/cpu/gpu
+	GpuDevice                string                    `json:"gpuDevice"`                // GPU 设备选择: auto 或设备 key
+	CpuSensor                string                    `json:"cpuSensor"`                // CPU 传感器选择: auto 或传感器 key
+	GpuSensor                string                    `json:"gpuSensor"`                // GPU 传感器选择: auto 或传感器 key
+	ConfigPath               string                    `json:"configPath"`               // 配置文件路径
+	ManualGear               string                    `json:"manualGear"`               // 手动挡位设置
+	ManualLevel              string                    `json:"manualLevel"`              // 手动挡位级别(低中高)
+	DebugMode                bool                      `json:"debugMode"`                // 调试模式
+	GuiMonitoring            bool                      `json:"guiMonitoring"`            // GUI监控开关
+	CustomSpeedEnabled       bool                      `json:"customSpeedEnabled"`       // 自定义转速开关
+	CustomSpeedRPM           int                       `json:"customSpeedRPM"`           // 自定义转速值(无上下限)
+	IgnoreDeviceOnReconnect  bool                      `json:"ignoreDeviceOnReconnect"`  // 断连后忽略设备状态(保持APP配置)
+	SmartControl             SmartControlConfig        `json:"smartControl"`             // 学习型智能控温配置
+	LightStrip               LightStripConfig          `json:"lightStrip"`               // 灯带配置
 }
 
 // GetDefaultLightStripConfig 获取默认灯带配置
@@ -460,24 +530,24 @@ const (
 // BS1GearCommands BS1 挡位命令（无子级别，只有4个固定挡位）
 // 命令格式: 5AA5 08 03 <gear_number> <checksum>
 var BS1GearCommands = map[string]GearCommand{
-	"静音": {"静音", []byte{0x5a, 0xa5, 0x08, 0x03, 0x01, 0x0c}, 1300},
-	"标准": {"标准", []byte{0x5a, 0xa5, 0x08, 0x03, 0x02, 0x0d}, 2100},
-	"强劲": {"强劲", []byte{0x5a, 0xa5, 0x08, 0x03, 0x03, 0x0e}, 2800},
-	"超频": {"超频", []byte{0x5a, 0xa5, 0x08, 0x03, 0x04, 0x0f}, 3500},
+	"静音": {"静音", deviceproto.BuildFrame(0x08, 0x01), 1300},
+	"标准": {"标准", deviceproto.BuildFrame(0x08, 0x02), 2100},
+	"强劲": {"强劲", deviceproto.BuildFrame(0x08, 0x03), 2800},
+	"超频": {"超频", deviceproto.BuildFrame(0x08, 0x04), 3500},
 }
 
 // BS1 BLE 命令常量
 var (
 	// BS1CmdEnterDynamic 进入动态转速模式
-	BS1CmdEnterDynamic = []byte{0x5a, 0xa5, 0x46, 0x03, 0x01, 0x4a}
+	BS1CmdEnterDynamic = deviceproto.BuildFrame(deviceproto.CmdRGBEnable, 0x01)
 	// BS1CmdPowerOnStartEnable 开启通电自启动
-	BS1CmdPowerOnStartEnable = []byte{0x5a, 0xa5, 0x0c, 0x03, 0x01, 0x10}
+	BS1CmdPowerOnStartEnable = deviceproto.BuildFrame(deviceproto.CmdSetPowerOnStart, 0x01)
 	// BS1CmdPowerOnStartDisable 关闭通电自启动
-	BS1CmdPowerOnStartDisable = []byte{0x5a, 0xa5, 0x0c, 0x03, 0x02, 0x11}
+	BS1CmdPowerOnStartDisable = deviceproto.BuildFrame(deviceproto.CmdSetPowerOnStart, 0x02)
 	// BS1CmdHeartbeat1 动态模式心跳包1
-	BS1CmdHeartbeat1 = []byte{0x5a, 0xa5, 0x23, 0x02, 0x25}
+	BS1CmdHeartbeat1 = deviceproto.BuildFrame(deviceproto.CmdEnterRealtimeRPM)
 	// BS1CmdHeartbeat2 动态模式心跳包2
-	BS1CmdHeartbeat2 = []byte{0x5a, 0xa5, 0x45, 0x02, 0x47}
+	BS1CmdHeartbeat2 = deviceproto.BuildFrame(deviceproto.CmdRGBStatus)
 )
 
 // BS1DeviceName BS1 蓝牙设备名称
@@ -486,25 +556,148 @@ const BS1DeviceName = "Flydigi BS1"
 // GearCommands 预设挡位命令
 var GearCommands = map[string][]GearCommand{
 	"静音": {
-		{"1挡低", []byte{0x5a, 0xa5, 0x26, 0x05, 0x00, 0x14, 0x05, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 1300},
-		{"1挡中", []byte{0x5a, 0xa5, 0x26, 0x05, 0x00, 0xa4, 0x06, 0xd5, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 1700},
-		{"1挡高", []byte{0x5a, 0xa5, 0x26, 0x05, 0x00, 0x6c, 0x07, 0x9e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 1900},
+		{"1挡低", buildGearRPMCommand(0, 1300), 1300},
+		{"1挡中", buildGearRPMCommand(0, 1700), 1700},
+		{"1挡高", buildGearRPMCommand(0, 1900), 1900},
 	},
 	"标准": {
-		{"2挡低", []byte{0x5a, 0xa5, 0x26, 0x05, 0x01, 0x34, 0x08, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 2100},
-		{"2挡中", []byte{0x5a, 0xa5, 0x26, 0x05, 0x01, 0x60, 0x09, 0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 2310},
-		{"2挡高", []byte{0x5a, 0xa5, 0x26, 0x05, 0x01, 0x8c, 0x0a, 0xc2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 2760},
+		{"2挡低", buildGearRPMCommand(1, 2100), 2100},
+		{"2挡中", buildGearRPMCommand(1, 2400), 2400},
+		{"2挡高", buildGearRPMCommand(1, 2700), 2700},
 	},
 	"强劲": {
-		{"3挡低", []byte{0x5a, 0xa5, 0x26, 0x05, 0x02, 0xf0, 0x0a, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 2800},
-		{"3挡中", []byte{0x5a, 0xa5, 0x26, 0x05, 0x02, 0xb8, 0x0b, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3000},
-		{"3挡高", []byte{0x5a, 0xa5, 0x26, 0x05, 0x02, 0xe4, 0x0c, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3300},
+		{"3挡低", buildGearRPMCommand(2, 2800), 2800},
+		{"3挡中", buildGearRPMCommand(2, 3000), 3000},
+		{"3挡高", buildGearRPMCommand(2, 3300), 3300},
 	},
 	"超频": {
-		{"4挡低", []byte{0x5a, 0xa5, 0x26, 0x05, 0x03, 0xac, 0x0d, 0xe7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3500},
-		{"4挡中", []byte{0x5a, 0xa5, 0x26, 0x05, 0x03, 0x74, 0x0e, 0xb0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3700},
-		{"4挡高", []byte{0x5a, 0xa5, 0x26, 0x05, 0x03, 0xa0, 0x0f, 0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 4000},
+		{"4挡低", buildGearRPMCommand(3, 3500), 3500},
+		{"4挡中", buildGearRPMCommand(3, 3700), 3700},
+		{"4挡高", buildGearRPMCommand(3, 4000), 4000},
 	},
+}
+
+func buildGearRPMCommand(gear int, rpm int) []byte {
+	return deviceproto.BuildFrame(deviceproto.CmdSetGearRPM, byte(gear), byte(rpm), byte(rpm>>8))
+}
+
+// 手动挡位转速约束（固件不上报最高转速, 也不做上限裁剪, 由 App 约束）
+const (
+	ManualGearMinRPM = 800  // 自定义挡位转速下限
+	ManualGearMaxRPM = 4500 // 自定义挡位转速上限
+)
+
+// ManualGearOrder 四个大挡位从低到高顺序
+var ManualGearOrder = []string{"静音", "标准", "强劲", "超频"}
+
+// ManualLevelOrder 每个大挡位的小挡位从低到高顺序
+var ManualLevelOrder = []string{"低", "中", "高"}
+
+// DefaultManualGearRPM 出厂默认的 12 个挡位转速 (gear -> level -> rpm)
+var DefaultManualGearRPM = map[string]map[string]int{
+	"静音": {"低": 1300, "中": 1700, "高": 1900},
+	"标准": {"低": 2100, "中": 2400, "高": 2700},
+	"强劲": {"低": 2800, "中": 3000, "高": 3300},
+	"超频": {"低": 3500, "中": 3700, "高": 4000},
+}
+
+// CloneDefaultManualGearRPM 返回默认挡位转速表的深拷贝
+func CloneDefaultManualGearRPM() map[string]map[string]int {
+	out := make(map[string]map[string]int, len(DefaultManualGearRPM))
+	for gear, levels := range DefaultManualGearRPM {
+		inner := make(map[string]int, len(levels))
+		for level, rpm := range levels {
+			inner[level] = rpm
+		}
+		out[gear] = inner
+	}
+	return out
+}
+
+// GearIndex 返回大挡位对应的设备挡位索引(0-3)
+func GearIndex(gear string) (int, bool) {
+	for i, g := range ManualGearOrder {
+		if g == gear {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// BuildGearRPMCommand 构建 0x26 挡位转速设置命令(可下发任意 16 位转速)
+func BuildGearRPMCommand(gear int, rpm int) []byte {
+	return buildGearRPMCommand(gear, rpm)
+}
+
+// DefaultGearRPM 返回某挡位某级别的出厂默认转速
+func DefaultGearRPM(gear, level string) int {
+	if levels, ok := DefaultManualGearRPM[gear]; ok {
+		if rpm, ok := levels[level]; ok {
+			return rpm
+		}
+	}
+	return 0
+}
+
+// ResolveGearRPM 返回配置中某挡位某级别的转速(优先自定义, 回退默认)
+func (c *AppConfig) ResolveGearRPM(gear, level string) int {
+	if c != nil && c.ManualGearRPM != nil {
+		if levels, ok := c.ManualGearRPM[gear]; ok {
+			if rpm, ok := levels[level]; ok && rpm > 0 {
+				return rpm
+			}
+		}
+	}
+	return DefaultGearRPM(gear, level)
+}
+
+func clampManualGearRPM(rpm int) int {
+	if rpm < ManualGearMinRPM {
+		return ManualGearMinRPM
+	}
+	if rpm > ManualGearMaxRPM {
+		return ManualGearMaxRPM
+	}
+	return rpm
+}
+
+// NormalizeManualGearRPM 校验并补全 12 个自定义挡位转速:
+// 缺失项用默认值补全; 限制在 [ManualGearMinRPM, ManualGearMaxRPM];
+// 按从低到高(静音低 -> 超频高)强制非递减。返回是否发生修改。
+func NormalizeManualGearRPM(cfg *AppConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	changed := false
+	if cfg.ManualGearRPM == nil {
+		cfg.ManualGearRPM = map[string]map[string]int{}
+		changed = true
+	}
+	prev := 0
+	for _, gear := range ManualGearOrder {
+		levels, ok := cfg.ManualGearRPM[gear]
+		if !ok || levels == nil {
+			levels = map[string]int{}
+			cfg.ManualGearRPM[gear] = levels
+			changed = true
+		}
+		for _, level := range ManualLevelOrder {
+			rpm, ok := levels[level]
+			if !ok || rpm <= 0 {
+				rpm = DefaultGearRPM(gear, level)
+			}
+			rpm = clampManualGearRPM(rpm)
+			if rpm < prev {
+				rpm = prev
+			}
+			if levels[level] != rpm {
+				levels[level] = rpm
+				changed = true
+			}
+			prev = rpm
+		}
+	}
+	return changed
 }
 
 // BS1Checksum 计算 BS1 命令校验和: (sum of all bytes + 1) & 0xFF
@@ -521,9 +714,7 @@ func BS1Checksum(data []byte) byte {
 func BuildBS1RPMCommand(rpm int) []byte {
 	lo := byte(rpm & 0xFF)
 	hi := byte((rpm >> 8) & 0xFF)
-	payload := []byte{0x5a, 0xa5, 0x21, 0x04, lo, hi}
-	checksum := BS1Checksum(payload)
-	return append(payload, checksum)
+	return deviceproto.BuildFrame(deviceproto.CmdSetRealtimeRPM, lo, hi)
 }
 
 // GetDefaultFanCurve 获取默认风扇曲线
@@ -565,7 +756,8 @@ func GetDefaultConfig(isAutoStart bool) AppConfig {
 			"强劲": "中",
 			"超频": "中",
 		},
-		FanCurve: defaultCurve,
+		ManualGearRPM: CloneDefaultManualGearRPM(),
+		FanCurve:      defaultCurve,
 		FanCurveProfiles: []FanCurveProfile{
 			{ID: "default", Name: "默认", Curve: defaultCurve},
 		},

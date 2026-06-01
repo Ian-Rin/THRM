@@ -64,6 +64,10 @@
     "bridgeWarning": {
       "default": "CPU/GPU temperature reading failed. Try reinitializing temperature monitoring. If the CPU temperature is still empty, install or update PawnIO, or close other hardware monitoring tools."
     },
+    "coreService": {
+      "unavailable": "Core service is unavailable. Check whether THRM Core.exe was quarantined by security software, or restore/reinstall Core and try again.",
+      "unavailableWithDetail": "Core service is unavailable: {{detail}}"
+    },
     "errors": {
       "initializeApp": "App initialization failed",
       "connectDevice": "Device connection failed",
@@ -151,7 +155,8 @@
     },
     "hero": {
       "modeLine": "{{mode}} · {{description}}",
-      "waitingBluetooth": "Waiting for Bluetooth connection..."
+      "waitingBluetooth": "Waiting for Bluetooth connection...",
+      "coreUnavailable": "Core service is unavailable. Restore the background service first."
     },
     "actions": {
       "smartControl": "Smart control",
@@ -218,6 +223,10 @@
       "checkingShort": "Checking...",
       "checkingButton": "Checking",
       "checkUpdate": "Check for updates",
+      "channelStable": "Stable",
+      "channelPrerelease": "Pre-release",
+      "prereleaseBadge": "Pre-release",
+      "noPrereleaseFound": "No pre-release build is available right now.",
       "openReleasePage": "Open release page",
       "updatable": "Update available",
       "checkFailed": "Failed to check updates. Please try again later.",
@@ -288,7 +297,13 @@
       "bs1SliderHint": "4 control points",
       "defaultSliderHint": "12 control points",
       "pointTooltip": "{{gear}} {{level}} · {{rpm}} RPM",
-      "pointIndex": "Level {{index}}"
+      "pointIndex": "Level {{index}}",
+      "customize": "Custom RPM",
+      "editTitle": "Customize gear RPM",
+      "editHint": "The 12 gears must increase from low to high, max {{max}} RPM",
+      "restoreDefault": "Restore defaults",
+      "rpmSaved": "Gear RPM saved",
+      "rpmSaveFailed": "Failed to save gear RPM: {{error}}"
     },
     "learning": {
       "title": "Adaptive learning",

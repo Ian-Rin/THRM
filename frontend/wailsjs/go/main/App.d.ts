@@ -28,6 +28,8 @@ export function GetCurrentFanData():Promise<types.FanData>;
 
 export function GetDebugInfo():Promise<Record<string, any>>;
 
+export function GetDeviceDebugFrames():Promise<Array<types.DeviceDebugFrame>>;
+
 export function GetDeviceStatus():Promise<Record<string, any>>;
 
 export function GetFanCurve():Promise<Array<types.FanCurvePoint>>;
@@ -62,6 +64,8 @@ export function QuitAll():Promise<void>;
 
 export function QuitApp():Promise<void>;
 
+export function RefreshDeviceSettings():Promise<types.DeviceSettings>;
+
 export function ReinstallPawnIO():Promise<Record<string, any>>;
 
 export function ResetLearnedOffsets():Promise<void>;
@@ -69,6 +73,8 @@ export function ResetLearnedOffsets():Promise<void>;
 export function RestartPawnIO():Promise<types.BridgeTemperatureData>;
 
 export function SaveFanCurveProfile(arg1:string,arg2:string,arg3:Array<types.FanCurvePoint>,arg4:boolean):Promise<types.FanCurveProfile>;
+
+export function SendDeviceDebugCommand(arg1:string,arg2:number):Promise<types.DeviceDebugCommandResult>;
 
 export function SetActiveFanCurveProfile(arg1:string):Promise<void>;
 

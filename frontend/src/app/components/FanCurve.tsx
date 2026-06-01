@@ -16,6 +16,8 @@ import {
   Download,
   Sparkles,
   Upload,
+  Pencil,
+  X,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
@@ -25,7 +27,7 @@ import { useLocale } from '../lib/i18n';
 import { type HistorySeriesKey } from '../lib/temperature-history';
 import type { CurveFocusTarget } from '../store/app-store';
 import { types } from '../../../wailsjs/go/models';
-import { BS1_MANUAL_GEAR_PRESETS, getManualGearLabel, getManualLevelLabel, MANUAL_GEAR_PRESETS } from '../lib/manualGearPresets';
+import { BS1_MANUAL_GEAR_PRESETS, getManualGearLabel, getManualLevelLabel, MANUAL_GEAR_PRESETS, getEffectiveManualGearPresets, normalizeManualGearRpmMap, MANUAL_GEAR_RPM_MAX, MANUAL_GEAR_RPM_MIN, type ManualGearRpmMap } from '../lib/manualGearPresets';
 import { useTranslation } from 'react-i18next';
 import FanCurveProfileSelect from './FanCurveProfileSelect';
 import { toast } from 'sonner';
@@ -866,10 +868,29 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
     }
   }, [syncConfigFromBackend, t]);
 
+  /* ── Reference temperature (follows settings 控温温度来源: max/cpu/gpu) ── */
+  const referenceTemp = useMemo(() => {
+    if (!temperature) return null;
+    const source = (((config as any).tempSource as string) || 'max') as 'max' | 'cpu' | 'gpu';
+    const cpu = temperature.cpuTemp ?? 0;
+    const gpu = temperature.gpuTemp ?? 0;
+    const max = temperature.maxTemp ?? 0;
+    if (source === 'cpu') return cpu > 0 ? cpu : (max > 0 ? max : null);
+    if (source === 'gpu') return gpu > 0 ? gpu : (max > 0 ? max : null);
+    return max > 0 ? max : null;
+  }, [temperature, config]);
+
   /* ── Manual gear ── */
 
   const isBs1 = deviceModel === 'BS1';
-  const manualGearPresets = isBs1 ? BS1_MANUAL_GEAR_PRESETS : MANUAL_GEAR_PRESETS;
+
+  const customGearRpm = useMemo(() => {
+    return ((config as any).manualGearRpm ?? null) as ManualGearRpmMap | null;
+  }, [config]);
+
+  const manualGearPresets = isBs1
+    ? BS1_MANUAL_GEAR_PRESETS
+    : getEffectiveManualGearPresets(customGearRpm);
 
   const manualPoints = useMemo(() => {
     return manualGearPresets.flatMap((preset, gearIndex) => preset.levels.map((item, levelIndex) => ({
@@ -922,6 +943,54 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
       : (config.manualLevel || '中');
     await applyManualGearPreset(gear, nextLevel);
   }, [applyManualGearPreset, config, rememberedManualGearLevels]);
+
+  /* ── Manual gear RPM editor ── */
+
+  const [gearEditOpen, setGearEditOpen] = useState(false);
+  const [draftGearRpm, setDraftGearRpm] = useState<ManualGearRpmMap>({});
+  const [gearRpmSaving, setGearRpmSaving] = useState(false);
+
+  const buildDraftFrom = useCallback((source: ManualGearRpmMap | null): ManualGearRpmMap => {
+    const base: ManualGearRpmMap = {};
+    MANUAL_GEAR_PRESETS.forEach((preset) => {
+      base[preset.gear] = {};
+      preset.levels.forEach((lv) => {
+        const value = source?.[preset.gear]?.[lv.level];
+        base[preset.gear][lv.level] = typeof value === 'number' && value > 0 ? value : lv.rpm;
+      });
+    });
+    return base;
+  }, []);
+
+  const openGearEditor = useCallback(() => {
+    setDraftGearRpm(buildDraftFrom(customGearRpm));
+    setGearEditOpen(true);
+  }, [buildDraftFrom, customGearRpm]);
+
+  const setDraftRpm = useCallback((gear: string, level: string, value: number) => {
+    setDraftGearRpm((prev) => ({
+      ...prev,
+      [gear]: { ...(prev[gear] ?? {}), [level]: value },
+    }));
+  }, []);
+
+  const saveGearRpm = useCallback(async () => {
+    setGearRpmSaving(true);
+    try {
+      const normalized = normalizeManualGearRpmMap(draftGearRpm);
+      const next = types.AppConfig.createFrom({ ...config, manualGearRpm: normalized });
+      await apiService.updateConfig(next);
+      onConfigChange(next);
+      // 重新下发当前挡位以应用新转速
+      await apiService.setManualGear(config.manualGear || '标准', config.manualLevel || '中');
+      setGearEditOpen(false);
+      toast.success(t('fanCurve.manualGear.rpmSaved'));
+    } catch (err) {
+      toast.error(t('fanCurve.manualGear.rpmSaveFailed', { error: getErrorMessage(err) }));
+    } finally {
+      setGearRpmSaving(false);
+    }
+  }, [config, draftGearRpm, onConfigChange, t]);
 
   /* ── Custom dot renderer ── */
 
@@ -977,7 +1046,14 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
               <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">{t('fanCurve.manualGear.title')}</span>
-                  <span className="text-xs text-muted-foreground">{isBs1 ? t('fanCurve.manualGear.bs1SliderHint') : t('fanCurve.manualGear.defaultSliderHint')}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{isBs1 ? t('fanCurve.manualGear.bs1SliderHint') : t('fanCurve.manualGear.defaultSliderHint')}</span>
+                    {!isBs1 && (
+                      <Button variant="secondary" size="sm" onClick={openGearEditor} icon={<Pencil className="h-3.5 w-3.5" />}>
+                        {t('fanCurve.manualGear.customize')}
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1045,6 +1121,49 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
           )}
         </AnimatePresence>
 
+        {/* ── Manual gear RPM editor dialog ── */}
+        <Dialog open={gearEditOpen} onOpenChange={setGearEditOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{t('fanCurve.manualGear.editTitle')}</DialogTitle>
+              <DialogDescription>{t('fanCurve.manualGear.editHint', { max: MANUAL_GEAR_RPM_MAX })}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              {MANUAL_GEAR_PRESETS.map((preset) => (
+                <div key={preset.gear} className="rounded-xl border border-border/70 bg-background/40 p-3">
+                  <div className={clsx('mb-2 text-sm font-semibold', preset.colorClass)}>{getManualGearLabel(preset.gear)}</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {preset.levels.map((lv) => (
+                      <div key={lv.level} className="space-y-1">
+                        <div className="text-[11px] text-muted-foreground">{getManualLevelLabel(lv.level)}</div>
+                        <NumberInput
+                          value={draftGearRpm[preset.gear]?.[lv.level] ?? lv.rpm}
+                          onChange={(value) => setDraftRpm(preset.gear, lv.level, value)}
+                          min={MANUAL_GEAR_RPM_MIN}
+                          max={MANUAL_GEAR_RPM_MAX}
+                          step={50}
+                          suffix="RPM"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" size="sm" onClick={() => setDraftGearRpm(buildDraftFrom(null))} icon={<RotateCw className="h-3.5 w-3.5" />}>
+                {t('fanCurve.manualGear.restoreDefault')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setGearEditOpen(false)} icon={<X className="h-3.5 w-3.5" />}>
+                {t('common.actions.cancel')}
+              </Button>
+              <Button variant="primary" size="sm" onClick={saveGearRpm} loading={gearRpmSaving} icon={<Check className="h-3.5 w-3.5" />}>
+                {t('common.actions.save')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* ── Chart ── */}
         <div ref={curveEditorRef}>
           <div
@@ -1071,7 +1190,7 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
                   {showCoupledCurve && <Line type="monotone" dataKey="coupledRpm" stroke="var(--chart-primary)" strokeWidth={2} strokeDasharray="6 4" dot={false} activeDot={false} isAnimationActive={false} />}
                 </LineChart>
               </ResponsiveContainer>
-              <TemperatureIndicator temperature={temperature?.maxTemp ?? null} chartRef={chartRef} temperatureRange={temperatureRange} />
+              <TemperatureIndicator temperature={referenceTemp} chartRef={chartRef} temperatureRange={temperatureRange} />
             </div>
           </div>
         </div>
@@ -1304,7 +1423,7 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, t
                         />
                         {historySeriesVisibility.cpu && <Line yAxisId="temp" type="monotone" dataKey="cpuTemp" stroke="#2f6df6" strokeWidth={2.3} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
                         {historySeriesVisibility.gpu && <Line yAxisId="temp" type="monotone" dataKey="gpuTemp" stroke="#f97316" strokeWidth={2.3} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
-                        {historySeriesVisibility.fan && <Line yAxisId="fan" type="monotone" dataKey="fanRpm" stroke="#10b981" strokeWidth={2} strokeDasharray="5 4" dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
+                        {historySeriesVisibility.fan && <Line yAxisId="fan" type="monotone" dataKey="fanRpm" stroke="#10b981" strokeWidth={2} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
                       </LineChart>
                     </ResponsiveContainer>
                   </div>

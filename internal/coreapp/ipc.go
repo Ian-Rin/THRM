@@ -32,6 +32,13 @@ func (a *CoreApp) handleIPCRequest(req ipc.Request) ipc.Response {
 		data := a.deviceManager.GetCurrentFanData()
 		return a.dataResponse(data)
 
+	case ipc.ReqRefreshDeviceSettings:
+		settings, err := a.RefreshDeviceSettings()
+		if err != nil {
+			return a.errorResponse(err.Error())
+		}
+		return a.dataResponse(settings)
+
 	// 配置相关
 	case ipc.ReqGetConfig:
 		cfg := a.configManager.Get()
@@ -314,6 +321,20 @@ func (a *CoreApp) handleIPCRequest(req ipc.Request) ipc.Response {
 			return a.errorResponse(err.Error())
 		}
 		return a.successResponse(true)
+
+	case ipc.ReqSendDeviceDebugCommand:
+		var params ipc.DeviceDebugCommandParams
+		if err := json.Unmarshal(req.Data, &params); err != nil {
+			return a.errorResponse("解析参数失败: " + err.Error())
+		}
+		result, err := a.SendDeviceDebugCommand(params.Hex, params.WaitMs)
+		if err != nil {
+			return a.errorResponse(err.Error())
+		}
+		return a.dataResponse(result)
+
+	case ipc.ReqGetDeviceDebugFrames:
+		return a.dataResponse(a.GetDeviceDebugFrames())
 
 	case ipc.ReqUpdateGuiResponseTime:
 		atomic.StoreInt64(&a.guiLastResponse, time.Now().Unix())

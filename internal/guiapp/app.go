@@ -35,6 +35,12 @@ type (
 	TemperatureHistoryPoint   = types.TemperatureHistoryPoint
 	TemperatureHistoryPayload = types.TemperatureHistoryPayload
 	BridgeTemperatureData     = types.BridgeTemperatureData
+	DeviceDebugCommandResult  = types.DeviceDebugCommandResult
+	DeviceDebugFrame          = types.DeviceDebugFrame
+	DeviceDebugCommandPreset  = types.DeviceDebugCommandPreset
+	DeviceSettings            = types.DeviceSettings
+	DeviceGearRPM             = types.DeviceGearRPM
+	DeviceStatusRead          = types.DeviceStatusRead
 	AppConfig                 = types.AppConfig
 )
 

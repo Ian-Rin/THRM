@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { apiService } from '../services/api';
 import { useAppStore } from '../store/app-store';
 
 export function useAppBootstrap() {
@@ -15,4 +16,21 @@ export function useAppBootstrap() {
   useEffect(() => {
     initializeApp();
   }, [initializeApp]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pingCore = () => {
+      if (cancelled) return;
+      apiService.updateGuiResponseTime().catch(() => {
+        // 后端会通过 core-service-error 事件把可见错误同步到状态层。
+      });
+    };
+
+    pingCore();
+    const timer = window.setInterval(pingCore, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 }

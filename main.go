@@ -52,7 +52,10 @@ func main() {
 			OnSecondInstanceLaunch: guiapp.OnSecondInstanceLaunch,
 		},
 		Windows: &windows.Options{
-			WindowIsTranslucent: true,
+			// 窗口背景本身是不透明的，开启半透明会让 WebView2 表面带 alpha 通道，
+			// 从而关闭 ClearType 次像素抗锯齿，在 1080p 等非整数 DPI 缩放下字体会发虚发糊。
+			// 关闭半透明以恢复清晰的字体渲染。
+			WindowIsTranslucent: false,
 		},
 		Bind: []any{
 			app,

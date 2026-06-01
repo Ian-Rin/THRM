@@ -2,6 +2,7 @@ package coreapp
 
 import (
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/TIANLI0/THRM/internal/ipc"
@@ -12,6 +13,11 @@ import (
 
 const staleBridgeUpdateThreshold = 3
 
+const (
+	consecutiveBridgeFailureRestartThreshold = 2
+	temperatureBridgeRestartCooldown         = 10 * time.Second
+)
+
 func trackBridgeTemperatureStaleness(temp types.TemperatureData, lastUpdate int64, staleCount int) (int64, int, bool) {
 	if !temp.BridgeOk || temp.UpdateTime <= 0 {
 		return 0, 0, false
@@ -21,6 +27,50 @@ func trackBridgeTemperatureStaleness(temp types.TemperatureData, lastUpdate int6
 	}
 	staleCount++
 	return lastUpdate, staleCount, staleCount >= staleBridgeUpdateThreshold
+}
+
+func shouldRestartTemperatureBridge(temp types.TemperatureData) bool {
+	if temp.BridgeOk {
+		return false
+	}
+
+	msg := strings.ToLower(strings.TrimSpace(temp.BridgeMsg))
+	if msg == "" {
+		return true
+	}
+
+	restartHints := []string{
+		"启动桥接程序失败",
+		"桥接程序通信失败",
+		"桥接程序未连接",
+		"连接管道失败",
+		"发送命令失败",
+		"读取响应失败",
+		"等待桥接程序启动超时",
+		"未能获取管道名称",
+		"pipe",
+		"broken",
+		"closed",
+	}
+	for _, hint := range restartHints {
+		if strings.Contains(msg, strings.ToLower(hint)) {
+			return true
+		}
+	}
+
+	// 休眠恢复后硬件监控库偶尔会返回全 0 但进程仍能响应，重启桥接可重新初始化底层传感器。
+	return temp.CPUTemp == 0 && temp.GPUTemp == 0
+}
+
+func (a *CoreApp) recoverTemperatureBridge(reason string) {
+	a.safeRun("temperature-bridge-recover@"+reason, func() {
+		a.bridgeManager.Stop()
+		if err := a.bridgeManager.EnsureRunning(); err != nil {
+			a.logError("温度桥接自愈重启失败[%s]: %v", reason, err)
+			return
+		}
+		a.logInfo("温度桥接已完成自愈重启: %s", reason)
+	})
 }
 
 func compactTemperatureEventPayload(current, previous types.TemperatureData) types.TemperatureData {
@@ -92,6 +142,8 @@ func (a *CoreApp) startTemperatureMonitoring() {
 	lastMonitorTick := time.Now()
 	lastBridgeUpdateTime := initialTemp.UpdateTime
 	staleBridgeUpdateCount := 0
+	bridgeFailureCount := 0
+	lastBridgeRestart := time.Time{}
 	var smartCfg types.SmartControlConfig
 	smartCfgRevision := cfgRevision - 1
 
@@ -123,15 +175,31 @@ func (a *CoreApp) startTemperatureMonitoring() {
 				GpuSensor:  cfg.GpuSensor,
 			}
 			temp := a.tempReader.Read(selection)
-			staleBridge := false
-			lastBridgeUpdateTime, staleBridgeUpdateCount, staleBridge = trackBridgeTemperatureStaleness(temp, lastBridgeUpdateTime, staleBridgeUpdateCount)
-			if staleBridge {
-				a.logError("温度桥接返回的 updateTime 连续 %d 次未变化，触发桥接重连自愈", staleBridgeUpdateCount+1)
-				a.safeRun("stale-temperature-bridge-stop", func() {
-					a.bridgeManager.Stop()
-				})
+			if temp.BridgeOk {
+				bridgeFailureCount = 0
+				staleBridge := false
+				lastBridgeUpdateTime, staleBridgeUpdateCount, staleBridge = trackBridgeTemperatureStaleness(temp, lastBridgeUpdateTime, staleBridgeUpdateCount)
+				if staleBridge && time.Since(lastBridgeRestart) >= temperatureBridgeRestartCooldown {
+					a.logError("温度桥接返回的 updateTime 连续 %d 次未变化，触发桥接重连自愈", staleBridgeUpdateCount+1)
+					a.recoverTemperatureBridge("stale-update")
+					lastBridgeRestart = time.Now()
+					lastBridgeUpdateTime = 0
+					staleBridgeUpdateCount = 0
+				}
+			} else {
 				lastBridgeUpdateTime = 0
 				staleBridgeUpdateCount = 0
+				if shouldRestartTemperatureBridge(temp) {
+					bridgeFailureCount++
+					if bridgeFailureCount >= consecutiveBridgeFailureRestartThreshold && time.Since(lastBridgeRestart) >= temperatureBridgeRestartCooldown {
+						a.logError("温度桥接连续 %d 次读取失败，触发桥接重连自愈: %s", bridgeFailureCount, temp.BridgeMsg)
+						a.recoverTemperatureBridge("read-failure")
+						lastBridgeRestart = time.Now()
+						bridgeFailureCount = 0
+					}
+				} else {
+					bridgeFailureCount = 0
+				}
 			}
 
 			a.mutex.Lock()
@@ -377,10 +445,22 @@ func (a *CoreApp) performHealthCheck() {
 	}()
 
 	a.trayManager.CheckHealth()
+	a.ensureTemperatureMonitoringHealthy()
 	a.checkDeviceHealth()
 
 	a.logDebug("健康检查完成 - 托盘:%v 设备连接:%v",
 		a.trayManager.IsInitialized(), a.isConnected)
+}
+
+func (a *CoreApp) ensureTemperatureMonitoringHealthy() {
+	if a.systemSuspended.Load() || a.monitoringTemp.Load() {
+		return
+	}
+
+	a.logError("健康检查: 温度监控未运行，尝试重新启动")
+	a.safeGo("restartTemperatureMonitoring@health-check", func() {
+		a.startTemperatureMonitoring()
+	})
 }
 
 // checkDeviceHealth 检查设备健康状态

@@ -12,8 +12,33 @@ import {
 import type { TemperatureHistoryPoint } from '../lib/temperature-history';
 import { i18n } from '../lib/i18n';
 import { toast } from 'sonner';
+import type { DeviceSettings } from '../types/app';
 
 const getBridgeWarningMessage = () => i18n.t('store.bridgeWarning.default');
+
+const getCoreServiceErrorMessage = (detail?: string) => {
+  const trimmed = detail?.trim();
+  if (
+    trimmed?.includes(i18n.t('store.coreService.unavailable')) ||
+    trimmed?.startsWith('核心服务不可用') ||
+    trimmed?.startsWith('Core service is unavailable') ||
+    trimmed?.startsWith('Core サービスを利用できません')
+  ) {
+    return trimmed;
+  }
+  return trimmed
+    ? i18n.t('store.coreService.unavailableWithDetail', { detail: trimmed })
+    : i18n.t('store.coreService.unavailable');
+};
+
+const isCoreServiceFailureDetail = (detail?: string) => {
+  const normalized = detail?.toLowerCase() ?? '';
+  return normalized.includes('core') ||
+    normalized.includes('核心服务') ||
+    normalized.includes('ipc') ||
+    normalized.includes('服务器') ||
+    normalized.includes('服务');
+};
 
 type ActiveTab = 'status' | 'curve' | 'control' | 'about';
 export type CurveFocusTarget = 'curve-editor' | 'history-details';
@@ -22,11 +47,13 @@ interface AppStore {
   isConnected: boolean;
   deviceProductId: string | null;
   deviceModel: string | null;
+  deviceSettings: DeviceSettings | null;
   config: types.AppConfig | null;
   fanData: types.FanData | null;
   temperature: types.TemperatureData | null;
   legionFnQSupported: boolean;
   bridgeWarning: string | null;
+  coreServiceError: string | null;
   isLoading: boolean;
   error: string | null;
   activeTab: ActiveTab;
@@ -52,11 +79,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isConnected: false,
   deviceProductId: null,
   deviceModel: null,
+  deviceSettings: null,
   config: null,
   fanData: null,
   temperature: null,
   legionFnQSupported: false,
   bridgeWarning: null,
+  coreServiceError: null,
   isLoading: true,
   error: null,
   activeTab: 'status',
@@ -107,21 +136,26 @@ export const useAppStore = create<AppStore>((set, get) => ({
         deviceService.getStatus() as Promise<DeviceStatusPayload>,
         apiService.getDebugInfo().catch(() => null),
       ]);
+      const coreServiceError = deviceStatus.error ? getCoreServiceErrorMessage(deviceStatus.error) : null;
 
       set({
         config: appConfig,
         isConnected: deviceStatus.connected || false,
         deviceProductId: deviceStatus.productId || null,
         deviceModel: deviceStatus.model || null,
+        deviceSettings: deviceStatus.deviceSettings || null,
         fanData: deviceStatus.currentData || null,
         legionFnQSupported: debugInfo?.legionFnQSupported === true,
-        error: null,
+        coreServiceError,
+        error: coreServiceError,
       });
 
       get().handleTemperaturePayload(deviceStatus.temperature || null);
     } catch (error) {
       console.error('初始化失败:', error);
-      set({ error: i18n.t('store.errors.initializeApp') });
+      const detail = error instanceof Error ? error.message : undefined;
+      const coreServiceError = isCoreServiceFailureDetail(detail) ? getCoreServiceErrorMessage(detail) : null;
+      set({ error: coreServiceError || i18n.t('store.errors.initializeApp'), coreServiceError });
     } finally {
       set({ isLoading: false });
     }
@@ -131,7 +165,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const success = await deviceService.connect();
       if (success) {
-        set({ isConnected: true, error: null });
+        const status = await deviceService.getStatus().catch(() => null);
+        const coreServiceError = status?.error ? getCoreServiceErrorMessage(status.error) : null;
+        set({
+          isConnected: true,
+          deviceSettings: status?.deviceSettings || null,
+          deviceProductId: status?.productId || get().deviceProductId,
+          deviceModel: status?.model || get().deviceModel,
+          coreServiceError,
+          error: coreServiceError,
+        });
       }
     } catch (error) {
       console.error('连接失败:', error);
@@ -142,7 +185,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   disconnectDevice: async () => {
     try {
       await deviceService.disconnect();
-      set({ isConnected: false, deviceProductId: null, deviceModel: null, fanData: null });
+      set({ isConnected: false, deviceProductId: null, deviceModel: null, deviceSettings: null, fanData: null });
     } catch (error) {
       console.error('断开连接失败:', error);
     }
@@ -162,13 +205,40 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const unsubscribers: Array<() => void> = [];
 
     unsubscribers.push(
+      apiService.onCoreServiceError((message) => {
+        const coreServiceError = getCoreServiceErrorMessage(message);
+        set({
+          coreServiceError,
+          error: coreServiceError,
+          isConnected: false,
+          deviceProductId: null,
+          deviceModel: null,
+          deviceSettings: null,
+          fanData: null,
+        });
+      })
+    );
+
+    unsubscribers.push(
+      apiService.onCoreServiceOK(() => {
+        set((state) => ({
+          coreServiceError: null,
+          error: state.coreServiceError && state.error === state.coreServiceError ? null : state.error,
+        }));
+      })
+    );
+
+    unsubscribers.push(
       deviceService.onDeviceConnected((deviceInfo) => {
         console.log('设备已连接:', deviceInfo);
         const info = deviceInfo as { productId?: string; model?: string };
+        const settings = (deviceInfo as { deviceSettings?: DeviceSettings | null })?.deviceSettings || null;
         set({
           isConnected: true,
           deviceProductId: info.productId || null,
           deviceModel: info.model || null,
+          deviceSettings: settings,
+          coreServiceError: null,
           error: null,
         });
       })
@@ -177,7 +247,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     unsubscribers.push(
       deviceService.onDeviceDisconnected(() => {
         console.log('设备已断开');
-        set({ isConnected: false, deviceProductId: null, deviceModel: null, fanData: null });
+        set({ isConnected: false, deviceProductId: null, deviceModel: null, deviceSettings: null, fanData: null });
+      })
+    );
+
+    unsubscribers.push(
+      deviceService.onDeviceSettingsUpdate((settings) => {
+        set({ deviceSettings: settings || null });
       })
     );
 

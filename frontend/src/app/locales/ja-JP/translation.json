@@ -64,6 +64,10 @@
     "bridgeWarning": {
       "default": "CPU/GPU 温度の取得に失敗しました。温度モニタリングの初期化を試してください。CPU 温度が表示されないままの場合は、PawnIO をインストールまたはアップデートするか、他のハードウェアモニタリングソフトを終了してください。"
     },
+    "coreService": {
+      "unavailable": "Core サービスを利用できません。THRM Core.exe がセキュリティソフトに隔離されていないか確認するか、Core を復元/再インストールしてから再試行してください。",
+      "unavailableWithDetail": "Core サービスを利用できません: {{detail}}"
+    },
     "errors": {
       "initializeApp": "アプリの初期化に失敗しました",
       "connectDevice": "デバイスの接続に失敗しました",
@@ -151,7 +155,8 @@
     },
     "hero": {
       "modeLine": "{{mode}} · {{description}}",
-      "waitingBluetooth": "Bluetooth 接続待機中…"
+      "waitingBluetooth": "Bluetooth 接続待機中…",
+      "coreUnavailable": "Core サービスを利用できません。先にバックグラウンドサービスを復元してください。"
     },
     "actions": {
       "smartControl": "スマート制御",
@@ -218,6 +223,10 @@
       "checkingShort": "確認中…",
       "checkingButton": "確認中",
       "checkUpdate": "アップデートを確認",
+      "channelStable": "安定版",
+      "channelPrerelease": "プレリリース",
+      "prereleaseBadge": "Pre-release",
+      "noPrereleaseFound": "現在利用できるプレリリースはありません。",
       "openReleasePage": "リリースページ",
       "updatable": "アップデートがあります",
       "checkFailed": "アップデートの確認に失敗しました。しばらくしてから再試行してください。",
@@ -288,7 +297,13 @@
       "bs1SliderHint": "4 段制御",
       "defaultSliderHint": "12 段制御",
       "pointTooltip": "{{gear}} {{level}} · {{rpm}} RPM",
-      "pointIndex": "{{index}}ギア"
+      "pointIndex": "{{index}}ギア",
+      "customize": "回転数をカスタマイズ",
+      "editTitle": "ギア回転数のカスタマイズ",
+      "editHint": "12 段階は低い順に増加させる必要があります。上限 {{max}} RPM",
+      "restoreDefault": "初期値に戻す",
+      "rpmSaved": "ギア回転数を保存しました",
+      "rpmSaveFailed": "ギア回転数の保存に失敗: {{error}}"
     },
     "learning": {
       "title": "適応学習",

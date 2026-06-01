@@ -50,6 +50,10 @@ export function GetDebugInfo() {
   return window['go']['main']['App']['GetDebugInfo']();
 }
 
+export function GetDeviceDebugFrames() {
+  return window['go']['main']['App']['GetDeviceDebugFrames']();
+}
+
 export function GetDeviceStatus() {
   return window['go']['main']['App']['GetDeviceStatus']();
 }
@@ -118,6 +122,10 @@ export function QuitApp() {
   return window['go']['main']['App']['QuitApp']();
 }
 
+export function RefreshDeviceSettings() {
+  return window['go']['main']['App']['RefreshDeviceSettings']();
+}
+
 export function ReinstallPawnIO() {
   return window['go']['main']['App']['ReinstallPawnIO']();
 }
@@ -132,6 +140,10 @@ export function RestartPawnIO() {
 
 export function SaveFanCurveProfile(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SaveFanCurveProfile'](arg1, arg2, arg3, arg4);
+}
+
+export function SendDeviceDebugCommand(arg1, arg2) {
+  return window['go']['main']['App']['SendDeviceDebugCommand'](arg1, arg2);
 }
 
 export function SetActiveFanCurveProfile(arg1) {

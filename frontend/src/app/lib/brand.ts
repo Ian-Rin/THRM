@@ -5,4 +5,5 @@ export const BRAND = {
   repositoryUrl: 'https://github.com/TIANLI0/THRM',
   latestReleaseUrl: 'https://github.com/TIANLI0/THRM/releases/latest',
   latestReleaseApiUrl: 'https://api.github.com/repos/TIANLI0/THRM/releases/latest',
+  releasesApiUrl: 'https://api.github.com/repos/TIANLI0/THRM/releases',
 } as const;

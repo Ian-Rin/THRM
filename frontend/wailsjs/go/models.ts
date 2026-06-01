@@ -255,6 +255,7 @@ export namespace types {
 	    autoControlToggleHotkey: string;
 	    curveProfileToggleHotkey: string;
 	    manualGearLevels: Record<string, string>;
+	    manualGearRpm: Record<string, any>;
 	    fanCurve: FanCurvePoint[];
 	    fanCurveProfiles: FanCurveProfile[];
 	    activeFanCurveProfileId: string;
@@ -294,6 +295,7 @@ export namespace types {
 	        this.autoControlToggleHotkey = source["autoControlToggleHotkey"];
 	        this.curveProfileToggleHotkey = source["curveProfileToggleHotkey"];
 	        this.manualGearLevels = source["manualGearLevels"];
+	        this.manualGearRpm = source["manualGearRpm"];
 	        this.fanCurve = this.convertValues(source["fanCurve"], FanCurvePoint);
 	        this.fanCurveProfiles = this.convertValues(source["fanCurveProfiles"], FanCurveProfile);
 	        this.activeFanCurveProfileId = source["activeFanCurveProfileId"];
@@ -447,6 +449,178 @@ export namespace types {
 		    return a;
 		}
 	}
+	export class DeviceDebugFrame {
+	    id: number;
+	    direction: string;
+	    transport: string;
+	    timestamp: string;
+	    rawHex: string;
+	    frameHex: string;
+	    command: string;
+	    length: number;
+	    payloadHex: string;
+	    checksumOk: boolean;
+	    description: string;
+	    decoded?: string;
+	    parsed?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeviceDebugFrame(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.direction = source["direction"];
+	        this.transport = source["transport"];
+	        this.timestamp = source["timestamp"];
+	        this.rawHex = source["rawHex"];
+	        this.frameHex = source["frameHex"];
+	        this.command = source["command"];
+	        this.length = source["length"];
+	        this.payloadHex = source["payloadHex"];
+	        this.checksumOk = source["checksumOk"];
+	        this.description = source["description"];
+	        this.decoded = source["decoded"];
+	        this.parsed = source["parsed"];
+	    }
+	}
+	export class DeviceDebugCommandResult {
+	    transport: string;
+	    inputHex: string;
+	    frameHex: string;
+	    rawHex: string;
+	    waitMs: number;
+	    frames: DeviceDebugFrame[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DeviceDebugCommandResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.transport = source["transport"];
+	        this.inputHex = source["inputHex"];
+	        this.frameHex = source["frameHex"];
+	        this.rawHex = source["rawHex"];
+	        this.waitMs = source["waitMs"];
+	        this.frames = this.convertValues(source["frames"], DeviceDebugFrame);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class DeviceGearRPM {
+	    gear: number;
+	    label: string;
+	    rpm: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeviceGearRPM(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.gear = source["gear"];
+	        this.label = source["label"];
+	        this.rpm = source["rpm"];
+	    }
+	}
+	export class DeviceStatusRead {
+	    gearSetting?: string;
+	    maxGear?: string;
+	    selected?: string;
+	    mode?: string;
+	    modeName?: string;
+	    smartStartStop?: string;
+	    smartStartStopName?: string;
+	    currentRpm?: number;
+	    targetRpm?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeviceStatusRead(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.gearSetting = source["gearSetting"];
+	        this.maxGear = source["maxGear"];
+	        this.selected = source["selected"];
+	        this.mode = source["mode"];
+	        this.modeName = source["modeName"];
+	        this.smartStartStop = source["smartStartStop"];
+	        this.smartStartStopName = source["smartStartStopName"];
+	        this.currentRpm = source["currentRpm"];
+	        this.targetRpm = source["targetRpm"];
+	    }
+	}
+	export class DeviceSettings {
+	    available: boolean;
+	    source: string;
+	    readAt: string;
+	    model?: string;
+	    gearRpmTable?: DeviceGearRPM[];
+	    workMode?: string;
+	    workModeName?: string;
+	    rgbState?: string;
+	    rgbStateName?: string;
+	    status?: DeviceStatusRead;
+	    rawFrames?: DeviceDebugFrame[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DeviceSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.source = source["source"];
+	        this.readAt = source["readAt"];
+	        this.model = source["model"];
+	        this.gearRpmTable = this.convertValues(source["gearRpmTable"], DeviceGearRPM);
+	        this.workMode = source["workMode"];
+	        this.workModeName = source["workModeName"];
+	        this.rgbState = source["rgbState"];
+	        this.rgbStateName = source["rgbStateName"];
+	        this.status = this.convertValues(source["status"], DeviceStatusRead);
+	        this.rawFrames = this.convertValues(source["rawFrames"], DeviceDebugFrame);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	
 	export class FanCurveProfilesPayload {

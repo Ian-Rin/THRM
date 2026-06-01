@@ -64,6 +64,10 @@
     "bridgeWarning": {
       "default": "CPU/GPU 温度读取失败，可尝试重新初始化温度监控；若 CPU 仍为空，请安装或更新 PawnIO，或关闭其它硬件监控工具。"
     },
+    "coreService": {
+      "unavailable": "核心服务不可用。请检查 THRM Core.exe 是否被安全软件隔离，或重新安装/恢复 Core 后重试。",
+      "unavailableWithDetail": "核心服务不可用：{{detail}}"
+    },
     "errors": {
       "initializeApp": "应用初始化失败",
       "connectDevice": "设备连接失败",
@@ -151,7 +155,8 @@
     },
     "hero": {
       "modeLine": "{{mode}} · {{description}}",
-      "waitingBluetooth": "等待蓝牙连接…"
+      "waitingBluetooth": "等待蓝牙连接…",
+      "coreUnavailable": "核心服务不可用，请先恢复后台服务"
     },
     "actions": {
       "smartControl": "智能变频",
@@ -218,6 +223,10 @@
       "checkingShort": "检查中…",
       "checkingButton": "检查中",
       "checkUpdate": "检查更新",
+      "channelStable": "正式版",
+      "channelPrerelease": "预发布",
+      "prereleaseBadge": "Pre-release",
+      "noPrereleaseFound": "当前未找到可用的预发布版本。",
       "openReleasePage": "打开发布页",
       "updatable": "可更新",
       "checkFailed": "检查更新失败，请稍后重试",
@@ -288,7 +297,13 @@
       "bs1SliderHint": "4 控制点滑块",
       "defaultSliderHint": "12 控制点滑块",
       "pointTooltip": "{{gear}} {{level}} · {{rpm}} RPM",
-      "pointIndex": "{{index}}档"
+      "pointIndex": "{{index}}档",
+      "customize": "自定义转速",
+      "editTitle": "自定义挡位转速",
+      "editHint": "12 个挡位从低到高需依次递增，上限 {{max}} RPM",
+      "restoreDefault": "恢复默认",
+      "rpmSaved": "挡位转速已保存",
+      "rpmSaveFailed": "保存挡位转速失败: {{error}}"
     },
     "learning": {
       "title": "自适应学习",

@@ -1,13 +1,15 @@
 import { types } from '../../../wailsjs/go/models';
 import { apiService } from './api';
-import type { LegionPowerModePayload } from '../types/app';
+import type { DeviceSettings, LegionPowerModePayload } from '../types/app';
 
 export interface DeviceStatusPayload {
   connected?: boolean;
   currentData?: types.FanData | null;
+  deviceSettings?: DeviceSettings | null;
   temperature?: types.TemperatureData | null;
   productId?: string;
   model?: string;
+  error?: string;
 }
 
 class DeviceService {
@@ -23,6 +25,10 @@ class DeviceService {
     return (await apiService.getDeviceStatus()) as DeviceStatusPayload;
   }
 
+  async refreshSettings() {
+    return apiService.refreshDeviceSettings();
+  }
+
   onDeviceConnected(callback: (data: unknown) => void) {
     return apiService.onDeviceConnected(callback as never);
   }
@@ -33,6 +39,10 @@ class DeviceService {
 
   onDeviceError(callback: (error: string) => void) {
     return apiService.onDeviceError(callback);
+  }
+
+  onDeviceSettingsUpdate(callback: (data: DeviceSettings) => void) {
+    return apiService.onDeviceSettingsUpdate(callback);
   }
 
   onFanDataUpdate(callback: (data: types.FanData) => void) {

@@ -28,6 +28,9 @@ type BLEManager struct {
 	onDisconnect    func()
 
 	stopChan chan struct{}
+
+	debugSeq    uint64
+	debugFrames []types.DeviceDebugFrame
 }
 
 // NewBLEManager 创建 BLE 设备管理器
@@ -209,6 +212,7 @@ func (b *BLEManager) enableNotifications() {
 			}
 		}()
 
+		b.recordDebugFrame("rx", types.DeviceTypeBLE, buf)
 		fanData := b.parseBS1Notification(buf)
 		if fanData != nil {
 			b.mutex.Lock()
@@ -380,6 +384,7 @@ func (b *BLEManager) WriteCommand(cmd []byte) error {
 			return fmt.Errorf("BLE 写入失败: WriteWithoutResponse=%v, Write=%v", err, err2)
 		}
 	}
+	b.recordDebugFrame("tx", types.DeviceTypeBLE, cmd)
 	return nil
 }
 

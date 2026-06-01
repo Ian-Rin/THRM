@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/TIANLI0/THRM/internal/appmeta"
 	"github.com/TIANLI0/THRM/internal/ipc"
 	"github.com/TIANLI0/THRM/internal/types"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -30,6 +31,27 @@ func mergeTemperatureMetadata(previous, incoming types.TemperatureData) types.Te
 		merged.SelectedGpuDevice = previous.SelectedGpuDevice
 	}
 	return merged
+}
+
+func coreServiceUnavailableMessage(detail string) string {
+	if detail == "" {
+		return fmt.Sprintf("核心服务不可用。请检查 %s 是否仍在安装目录中，或是否被安全软件隔离。", appmeta.CoreExecutableName)
+	}
+	return fmt.Sprintf("核心服务不可用：%s。请检查 %s 是否仍在安装目录中，或是否被安全软件隔离。", detail, appmeta.CoreExecutableName)
+}
+
+func (a *App) emitCoreServiceError(detail string) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, "core-service-error", coreServiceUnavailableMessage(detail))
+}
+
+func (a *App) emitCoreServiceOK() {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, "core-service-ok", nil)
 }
 
 // handleCoreEvent 处理核心服务推送的事件
@@ -120,28 +142,44 @@ func (a *App) handleCoreEvent(event ipc.Event) {
 func (a *App) sendRequest(reqType ipc.RequestType, data any) (*ipc.Response, error) {
 	if !a.ipcClient.IsConnected() {
 		if !EnsureCoreServiceRunning() {
-			return nil, fmt.Errorf("核心服务未运行且启动失败")
+			err := fmt.Errorf("核心服务未运行且启动失败")
+			a.emitCoreServiceError(err.Error())
+			return nil, err
 		}
 		if err := a.ipcClient.Connect(); err != nil {
-			return nil, fmt.Errorf("未连接到核心服务: %v", err)
+			wrapped := fmt.Errorf("未连接到核心服务: %v", err)
+			a.emitCoreServiceError(wrapped.Error())
+			return nil, wrapped
 		}
 		a.ipcClient.SetEventHandler(a.handleCoreEvent)
+		a.emitCoreServiceOK()
 	}
 
 	resp, err := a.ipcClient.SendRequest(reqType, data)
 	if err == nil {
+		a.emitCoreServiceOK()
 		return resp, nil
 	}
 
 	guiLogger.Warnf("IPC 请求失败，尝试重新连接核心服务后重试: %v", err)
 	a.ipcClient.Close()
 	if !EnsureCoreServiceRunning() {
-		return nil, fmt.Errorf("核心服务连接断开且重新启动失败: %v", err)
+		wrapped := fmt.Errorf("核心服务连接断开且重新启动失败: %v", err)
+		a.emitCoreServiceError(wrapped.Error())
+		return nil, wrapped
 	}
 	if connectErr := a.ipcClient.Connect(); connectErr != nil {
-		return nil, fmt.Errorf("重新连接核心服务失败: %v；原始错误: %v", connectErr, err)
+		wrapped := fmt.Errorf("重新连接核心服务失败: %v；原始错误: %v", connectErr, err)
+		a.emitCoreServiceError(wrapped.Error())
+		return nil, wrapped
 	}
 	a.ipcClient.SetEventHandler(a.handleCoreEvent)
 
-	return a.ipcClient.SendRequest(reqType, data)
+	resp, err = a.ipcClient.SendRequest(reqType, data)
+	if err != nil {
+		a.emitCoreServiceError(err.Error())
+		return nil, err
+	}
+	a.emitCoreServiceOK()
+	return resp, nil
 }

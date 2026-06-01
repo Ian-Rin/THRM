@@ -2,6 +2,7 @@ package guiapp
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/TIANLI0/THRM/internal/ipc"
 	"github.com/TIANLI0/THRM/internal/types"
@@ -24,8 +25,15 @@ func (a *App) ConnectDevice() bool {
 }
 
 // DisconnectDevice 断开设备连接
-func (a *App) DisconnectDevice() {
-	a.sendRequest(ipc.ReqDisconnect, nil)
+func (a *App) DisconnectDevice() error {
+	resp, err := a.sendRequest(ipc.ReqDisconnect, nil)
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("%s", resp.Error)
+	}
+	return nil
 }
 
 // GetDeviceStatus 获取设备连接状态
@@ -53,6 +61,21 @@ func (a *App) GetCurrentFanData() *FanData {
 		return nil
 	}
 	return &fanData
+}
+
+func (a *App) RefreshDeviceSettings() (*DeviceSettings, error) {
+	resp, err := a.sendRequest(ipc.ReqRefreshDeviceSettings, nil)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+	var settings DeviceSettings
+	if err := json.Unmarshal(resp.Data, &settings); err != nil {
+		return nil, err
+	}
+	return &settings, nil
 }
 
 // GetAvailableGears 获取可用挡位

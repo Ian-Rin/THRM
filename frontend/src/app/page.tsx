@@ -21,11 +21,13 @@ export default function Home() {
       isConnected: state.isConnected,
       deviceProductId: state.deviceProductId,
       deviceModel: state.deviceModel,
+      deviceSettings: state.deviceSettings,
       config: state.config,
       fanData: state.fanData,
       temperature: state.temperature,
       legionFnQSupported: state.legionFnQSupported,
       bridgeWarning: state.bridgeWarning,
+      coreServiceError: state.coreServiceError,
       isLoading: state.isLoading,
       error: state.error,
       activeTab: state.activeTab,
@@ -71,9 +73,11 @@ export default function Home() {
           isConnected={view.isConnected}
           deviceProductId={view.deviceProductId}
           deviceModel={view.deviceModel}
+          deviceSettings={view.deviceSettings}
           fanData={view.fanData}
           temperature={view.temperature}
           config={safeConfig}
+          coreServiceError={view.coreServiceError}
           onConnect={connectDevice}
           onDisconnect={disconnectDevice}
           onConfigChange={updateConfig}
@@ -102,6 +106,7 @@ export default function Home() {
           temperature={view.temperature}
           legionFnQSupported={view.legionFnQSupported}
           deviceModel={view.deviceModel}
+          deviceSettings={view.deviceSettings}
         />
       }
       aboutContent={<AboutPanel />}

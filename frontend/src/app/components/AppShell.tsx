@@ -642,7 +642,7 @@ export default function AppShell({
             className="shrink-0 border-b border-border/65 bg-background/92 px-4 pb-3 pt-3 backdrop-blur-xl sm:px-5 lg:px-6"
             style={DRAG_STYLE}
           >
-            <div className="mx-auto flex min-h-9 max-w-[1120px] items-center justify-start gap-3" style={NO_DRAG_STYLE}>
+            <div className="mx-auto flex min-h-9 max-w-[1120px] min-[1680px]:max-w-[1280px] min-[2200px]:max-w-[1480px] items-center justify-start gap-3" style={NO_DRAG_STYLE}>
               <StatusBadges isConnected={isConnected} fanData={fanData} temperature={temperature} autoControl={autoControl} />
             </div>
           </header>
@@ -657,7 +657,7 @@ export default function AppShell({
             <div className={clsx('min-h-full px-4 pb-6 sm:px-5 lg:px-6', isWindowsChrome ? 'pt-12' : 'pt-4')}>
 
           {/* Alerts */}
-          <div className="mx-auto max-w-[1120px]">
+          <div className="mx-auto max-w-[1120px] min-[1680px]:max-w-[1280px] min-[2200px]:max-w-[1480px]">
             <AnimatePresence>
               {error && (
                 <motion.div
@@ -697,7 +697,7 @@ export default function AppShell({
           </div>
 
           {/* Tab content */}
-          <main className="mx-auto w-full max-w-[1120px] min-w-0 overflow-hidden">
+          <main className="mx-auto w-full max-w-[1120px] min-[1680px]:max-w-[1280px] min-[2200px]:max-w-[1480px] min-w-0 overflow-hidden">
             <AnimatePresence mode="wait" initial={false} custom={transitionDirection}>
               <motion.div
                 key={activeTab}

@@ -363,8 +363,19 @@ func (a *CoreApp) ConnectDevice() bool {
 		a.isConnected = true
 		a.mutex.Unlock()
 
+		settings, settingsErr := a.RefreshDeviceSettings()
+		if settingsErr != nil {
+			a.logError("读取设备设置失败: %v", settingsErr)
+		}
 		if deviceInfo != nil && a.ipcServer != nil {
-			a.ipcServer.BroadcastEvent(ipc.EventDeviceConnected, deviceInfo)
+			eventPayload := map[string]any{}
+			for key, value := range deviceInfo {
+				eventPayload[key] = value
+			}
+			if settings != nil {
+				eventPayload["deviceSettings"] = settings
+			}
+			a.ipcServer.BroadcastEvent(ipc.EventDeviceConnected, eventPayload)
 		}
 
 		// BS1 不支持灯带
@@ -388,6 +399,7 @@ func (a *CoreApp) DisconnectDevice() {
 
 	a.mutex.Lock()
 	a.isConnected = false
+	a.deviceSettings = nil
 	a.mutex.Unlock()
 
 	a.deviceManager.DisconnectSilently()
@@ -439,6 +451,7 @@ func (a *CoreApp) reapplyConfigAfterReconnect() {
 // GetDeviceStatus 获取设备状态
 func (a *CoreApp) GetDeviceStatus() map[string]any {
 	a.mutex.RLock()
+	settings := a.deviceSettings
 	defer a.mutex.RUnlock()
 
 	productID := a.deviceManager.GetProductID()
@@ -450,11 +463,28 @@ func (a *CoreApp) GetDeviceStatus() map[string]any {
 	model := a.deviceManager.GetModelName()
 
 	return map[string]any{
-		"connected":   a.isConnected,
-		"monitoring":  a.monitoringTemp.Load(),
-		"currentData": a.deviceManager.GetCurrentFanData(),
-		"temperature": a.currentTemp,
-		"productId":   productIDHex,
-		"model":       model,
+		"connected":      a.isConnected,
+		"monitoring":     a.monitoringTemp.Load(),
+		"currentData":    a.deviceManager.GetCurrentFanData(),
+		"temperature":    a.currentTemp,
+		"productId":      productIDHex,
+		"model":          model,
+		"deviceSettings": settings,
 	}
+}
+
+func (a *CoreApp) RefreshDeviceSettings() (*types.DeviceSettings, error) {
+	settings, err := a.deviceManager.QueryDeviceSettings()
+	if err != nil && !settings.Available {
+		return nil, err
+	}
+
+	a.mutex.Lock()
+	a.deviceSettings = &settings
+	a.mutex.Unlock()
+
+	if a.ipcServer != nil {
+		a.ipcServer.BroadcastEvent(ipc.EventDeviceSettingsUpdate, settings)
+	}
+	return &settings, err
 }

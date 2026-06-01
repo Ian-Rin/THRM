@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TIANLI0/THRM/internal/deviceproto"
 	"github.com/TIANLI0/THRM/internal/types"
 	"github.com/sstallion/go-hid"
 )
@@ -70,6 +71,10 @@ type Manager struct {
 	// Why: 一次设灯效要发 30+ 帧，旧实现每帧 append + make，~35 次堆分配。
 	// 该缓冲只在持有 m.mutex 的灯效命令路径上使用，是线程安全的。
 	lightCmdBuf [65]byte
+
+	debugMutex  sync.Mutex
+	debugSeq    uint64
+	debugFrames []types.DeviceDebugFrame
 }
 
 // NewManager 创建新的设备管理器
@@ -386,6 +391,7 @@ func (m *Manager) monitorDeviceData(device *hid.Device, stop <-chan struct{}, do
 		consecutiveErrors = 0
 
 		if n > 0 {
+			m.recordDebugFrame("rx", types.DeviceTypeHID, buffer[:n])
 			fanData := m.parseFanData(buffer, n)
 			if fanData != nil {
 				// 无锁原子写
@@ -552,33 +558,17 @@ func (m *Manager) SetFanSpeed(rpm int) bool {
 	}
 
 	// 首先进入实时转速模式
-	enterModeCmd := []byte{0x02, 0x5A, 0xA5, 0x23, 0x02, 0x25, 0x00}
-	// 补齐到23字节
-	enterModeCmd = append(enterModeCmd, make([]byte, 23-len(enterModeCmd))...)
-
-	_, err := m.device.Write(enterModeCmd)
-	if err != nil {
+	if err := m.writeHIDFrameLocked(deviceproto.CmdEnterRealtimeRPM, nil, hidControlReportLen); err != nil {
 		m.logError("进入实时转速模式失败: %v", err)
 		return false
 	}
 
 	time.Sleep(50 * time.Millisecond)
 
-	// 构造转速设置命令
 	speedBytes := make([]byte, 2)
 	binary.LittleEndian.PutUint16(speedBytes, uint16(rpm))
 
-	// 计算校验和
-	checksum := (0x5A + 0xA5 + 0x21 + 0x04 + int(speedBytes[0]) + int(speedBytes[1]) + 1) & 0xFF
-
-	cmd := []byte{0x02, 0x5A, 0xA5, 0x21, 0x04}
-	cmd = append(cmd, speedBytes...)
-	cmd = append(cmd, byte(checksum))
-	// 补齐到23字节
-	cmd = append(cmd, make([]byte, 23-len(cmd))...)
-
-	_, err = m.device.Write(cmd)
-	if err != nil {
+	if err := m.writeHIDFrameLocked(deviceproto.CmdSetRealtimeRPM, speedBytes, hidControlReportLen); err != nil {
 		m.logError("设置风扇转速失败: %v", err)
 		return false
 	}
@@ -606,11 +596,7 @@ func (m *Manager) SetCustomFanSpeed(rpm int) bool {
 
 	m.logWarn("警告：设置自定义转速 %d RPM（无上下限限制）", rpm)
 
-	enterModeCmd := []byte{0x02, 0x5A, 0xA5, 0x23, 0x02, 0x25, 0x00}
-	enterModeCmd = append(enterModeCmd, make([]byte, 23-len(enterModeCmd))...)
-
-	_, err := m.device.Write(enterModeCmd)
-	if err != nil {
+	if err := m.writeHIDFrameLocked(deviceproto.CmdEnterRealtimeRPM, nil, hidControlReportLen); err != nil {
 		m.logError("进入实时转速模式失败: %v", err)
 		return false
 	}
@@ -620,16 +606,7 @@ func (m *Manager) SetCustomFanSpeed(rpm int) bool {
 	speedBytes := make([]byte, 2)
 	binary.LittleEndian.PutUint16(speedBytes, uint16(rpm))
 
-	// 计算校验和
-	checksum := (0x5A + 0xA5 + 0x21 + 0x04 + int(speedBytes[0]) + int(speedBytes[1]) + 1) & 0xFF
-
-	cmd := []byte{0x02, 0x5A, 0xA5, 0x21, 0x04}
-	cmd = append(cmd, speedBytes...)
-	cmd = append(cmd, byte(checksum))
-	cmd = append(cmd, make([]byte, 23-len(cmd))...)
-
-	_, err = m.device.Write(cmd)
-	if err != nil {
+	if err := m.writeHIDFrameLocked(deviceproto.CmdSetRealtimeRPM, speedBytes, hidControlReportLen); err != nil {
 		m.logError("设置自定义风扇转速失败: %v", err)
 		return false
 	}
@@ -652,12 +629,7 @@ func (m *Manager) EnterAutoMode() error {
 	}
 
 	// 发送进入实时转速模式的命令
-	enterModeCmd := []byte{0x02, 0x5A, 0xA5, 0x23, 0x02, 0x25, 0x00}
-	// 补齐到23字节
-	enterModeCmd = append(enterModeCmd, make([]byte, 23-len(enterModeCmd))...)
-
-	_, err := m.device.Write(enterModeCmd)
-	if err != nil {
+	if err := m.writeHIDFrameLocked(deviceproto.CmdEnterRealtimeRPM, nil, hidControlReportLen); err != nil {
 		return fmt.Errorf("进入自动模式失败: %v", err)
 	}
 
@@ -719,6 +691,7 @@ func (m *Manager) SetManualGear(gear, level string) bool {
 	// 发送命令，确保第一个字节是ReportID
 	cmdWithReportID := append([]byte{0x02}, selectedCommand.Command...)
 
+	m.recordDebugFrame("tx", types.DeviceTypeHID, cmdWithReportID)
 	_, err := m.device.Write(cmdWithReportID)
 	if err != nil {
 		m.logError("设置挡位 %s %s 失败: %v", gear, level, err)
@@ -726,6 +699,42 @@ func (m *Manager) SetManualGear(gear, level string) bool {
 	}
 
 	m.logInfo("设置挡位成功: %s %s (目标转速: %d RPM)", gear, level, selectedCommand.RPM)
+	return true
+}
+
+// SetManualGearRPM 按自定义转速设置手动挡位(HID 通过 0x26 下发指定转速; BS1 回退固定挡位)
+func (m *Manager) SetManualGearRPM(gear, level string, rpm int) bool {
+	if m.IsBS1() {
+		if err := m.bleManager.SetManualGear(gear); err != nil {
+			m.logError("BS1 设置挡位失败: %v", err)
+			return false
+		}
+		return true
+	}
+
+	idx, ok := types.GearIndex(gear)
+	if !ok {
+		m.logError("未知挡位 %s", gear)
+		return false
+	}
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if !m.isConnected || m.device == nil {
+		return false
+	}
+
+	cmd := types.BuildGearRPMCommand(idx, rpm)
+	cmdWithReportID := append([]byte{0x02}, cmd...)
+
+	m.recordDebugFrame("tx", types.DeviceTypeHID, cmdWithReportID)
+	if _, err := m.device.Write(cmdWithReportID); err != nil {
+		m.logError("设置挡位 %s %s (%d RPM) 失败: %v", gear, level, rpm, err)
+		return false
+	}
+
+	m.logInfo("设置挡位成功: %s %s (自定义转速: %d RPM)", gear, level, rpm)
 	return true
 }
 
@@ -743,18 +752,11 @@ func (m *Manager) SetGearLight(enabled bool) bool {
 		return false
 	}
 
-	var cmd []byte
+	payload := byte(0x00)
 	if enabled {
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x48, 0x03, 0x01, 0x4C}
-	} else {
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x48, 0x03, 0x00, 0x4B}
+		payload = 0x01
 	}
-
-	// 补齐到23字节
-	cmd = append(cmd, make([]byte, 23-len(cmd))...)
-
-	_, err := m.device.Write(cmd)
-	if err != nil {
+	if err := m.writeHIDFrameLocked(deviceproto.CmdGearLight, []byte{payload}, hidControlReportLen); err != nil {
 		m.logError("设置挡位灯失败: %v", err)
 		return false
 	}
@@ -779,18 +781,14 @@ func (m *Manager) SetPowerOnStart(enabled bool) bool {
 		return false
 	}
 
-	var cmd []byte
+	var payload byte
 	if enabled {
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x0C, 0x03, 0x01, 0x10}
+		payload = 0x01
 	} else {
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x0C, 0x03, 0x02, 0x11}
+		payload = 0x02
 	}
 
-	// 补齐到23字节
-	cmd = append(cmd, make([]byte, 23-len(cmd))...)
-
-	_, err := m.device.Write(cmd)
-	if err != nil {
+	if err := m.writeHIDFrameLocked(deviceproto.CmdSetPowerOnStart, []byte{payload}, hidControlReportLen); err != nil {
 		m.logError("设置通电自启动失败: %v", err)
 		return false
 	}
@@ -812,23 +810,19 @@ func (m *Manager) SetSmartStartStop(mode string) bool {
 		return false
 	}
 
-	var cmd []byte
+	var payload byte
 	switch mode {
 	case "off":
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x0D, 0x03, 0x00, 0x10}
+		payload = 0x00
 	case "immediate":
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x0D, 0x03, 0x01, 0x11}
+		payload = 0x01
 	case "delayed":
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x0D, 0x03, 0x02, 0x12}
+		payload = 0x02
 	default:
 		return false
 	}
 
-	// 补齐到23字节
-	cmd = append(cmd, make([]byte, 23-len(cmd))...)
-
-	_, err := m.device.Write(cmd)
-	if err != nil {
+	if err := m.writeHIDFrameLocked(deviceproto.CmdSetSmartStartStop, []byte{payload}, hidControlReportLen); err != nil {
 		m.logError("设置智能启停失败: %v", err)
 		return false
 	}
@@ -854,23 +848,19 @@ func (m *Manager) SetBrightness(percentage int) bool {
 		return false
 	}
 
-	var cmd []byte
 	switch percentage {
 	case 0:
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x47, 0x0D, 0x1C, 0x00, 0xFF}
-		// 补齐到23字节
-		cmd = append(cmd, make([]byte, 23-len(cmd))...)
+		payload := []byte{0x1C, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+		if err := m.writeHIDFrameLocked(0x47, payload, hidControlReportLen); err != nil {
+			m.logError("设置亮度失败: %v", err)
+			return false
+		}
 	case 100:
-		cmd = []byte{0x02, 0x5A, 0xA5, 0x43, 0x02, 0x45}
-		// 补齐到23字节
-		cmd = append(cmd, make([]byte, 23-len(cmd))...)
+		if err := m.writeHIDFrameLocked(0x43, nil, hidControlReportLen); err != nil {
+			m.logError("设置亮度失败: %v", err)
+			return false
+		}
 	default:
-		return false
-	}
-
-	_, err := m.device.Write(cmd)
-	if err != nil {
-		m.logError("设置亮度失败: %v", err)
 		return false
 	}
 

@@ -150,6 +150,63 @@ export interface DebugInfo {
   plugins?: Array<{ id: string; name: string; running: boolean; lastError?: string }>;
 }
 
+export interface DeviceDebugFrame {
+  id: number;
+  direction: string;
+  transport: string;
+  timestamp: string;
+  rawHex: string;
+  frameHex: string;
+  command: string;
+  length: number;
+  payloadHex: string;
+  checksumOk: boolean;
+  description: string;
+  decoded?: string;
+  parsed?: unknown;
+}
+
+export interface DeviceDebugCommandResult {
+  transport: string;
+  inputHex: string;
+  frameHex: string;
+  rawHex: string;
+  waitMs: number;
+  frames: DeviceDebugFrame[];
+}
+
+export interface DeviceGearRPM {
+  gear: number;
+  label: string;
+  rpm: number;
+}
+
+export interface DeviceStatusRead {
+  gearSetting?: string;
+  maxGear?: string;
+  selected?: string;
+  mode?: string;
+  modeName?: string;
+  smartStartStop?: string;
+  smartStartStopName?: string;
+  currentRpm?: number;
+  targetRpm?: number;
+}
+
+export interface DeviceSettings {
+  available: boolean;
+  source: string;
+  readAt: string;
+  model?: string;
+  gearRpmTable?: DeviceGearRPM[];
+  workMode?: string;
+  workModeName?: string;
+  rgbState?: string;
+  rgbStateName?: string;
+  status?: DeviceStatusRead;
+  rawFrames?: DeviceDebugFrame[];
+}
+
 // 自启动方式
 export type AutoStartMethod = 'none' | 'task_scheduler' | 'registry';
 

@@ -45,8 +45,8 @@ export const MANUAL_GEAR_PRESETS: ManualGearPreset[] = [
     bgClass: 'bg-blue-500/12',
     levels: [
       { level: '低', rpm: 2100 },
-      { level: '中', rpm: 2310 },
-      { level: '高', rpm: 2760 },
+      { level: '中', rpm: 2400 },
+      { level: '高', rpm: 2700 },
     ],
   },
   {
@@ -109,6 +109,48 @@ export const getManualGearHighLevelRpm = (gear?: string | null): number | undefi
   if (!gear) return undefined;
   const preset = MANUAL_GEAR_PRESETS.find((item) => item.gear === gear);
   return preset?.levels.find((level) => level.level === '高')?.rpm;
+};
+
+// 自定义挡位转速约束（与后端 types.ManualGearMinRPM/MaxRPM 保持一致）
+export const MANUAL_GEAR_RPM_MIN = 800;
+export const MANUAL_GEAR_RPM_MAX = 4500;
+
+export type ManualGearRpmMap = Record<string, Record<string, number>>;
+
+// 根据用户自定义转速生成有效挡位预设（缺省回退到出厂默认）
+export const getEffectiveManualGearPresets = (
+  custom?: ManualGearRpmMap | null,
+): ManualGearPreset[] => {
+  if (!custom) return MANUAL_GEAR_PRESETS;
+  return MANUAL_GEAR_PRESETS.map((preset) => ({
+    ...preset,
+    levels: preset.levels.map((lv) => {
+      const value = custom[preset.gear]?.[lv.level];
+      return {
+        ...lv,
+        rpm: typeof value === 'number' && value > 0 ? value : lv.rpm,
+      };
+    }),
+  }));
+};
+
+// 校验并补全 12 个自定义转速：限制在 [MIN, MAX] 且按从低到高强制非递减
+export const normalizeManualGearRpmMap = (custom?: ManualGearRpmMap | null): ManualGearRpmMap => {
+  const out: ManualGearRpmMap = {};
+  let prev = 0;
+  for (const preset of MANUAL_GEAR_PRESETS) {
+    out[preset.gear] = {};
+    for (const lv of preset.levels) {
+      let v = Math.round(Number(custom?.[preset.gear]?.[lv.level] ?? lv.rpm));
+      if (!Number.isFinite(v) || v <= 0) v = lv.rpm;
+      if (v < MANUAL_GEAR_RPM_MIN) v = MANUAL_GEAR_RPM_MIN;
+      if (v > MANUAL_GEAR_RPM_MAX) v = MANUAL_GEAR_RPM_MAX;
+      if (v < prev) v = prev;
+      out[preset.gear][lv.level] = v;
+      prev = v;
+    }
+  }
+  return out;
 };
 
 export const getManualGearLabel = (gear?: string | null): string => {

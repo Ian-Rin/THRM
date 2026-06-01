@@ -23,6 +23,7 @@ import { apiService } from '../services/api';
 import { useTemperatureHistory } from '../hooks/useTemperatureHistory';
 import { type TemperatureHistoryPoint } from '../lib/temperature-history';
 import { getManualGearLabel, getReportedMaxRpm } from '../lib/manualGearPresets';
+import type { DeviceSettings } from '../types/app';
 import { useTranslation } from 'react-i18next';
 import { ToggleSwitch, Button } from './ui/index';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -32,9 +33,11 @@ interface DeviceStatusProps {
   isConnected: boolean;
   deviceProductId: string | null;
   deviceModel: string | null;
+  deviceSettings: DeviceSettings | null;
   fanData: types.FanData | null;
   temperature: types.TemperatureData | null;
   config: types.AppConfig;
+  coreServiceError?: string | null;
   onConnect: () => void;
   onDisconnect: () => void;
   onConfigChange: (config: types.AppConfig) => void;
@@ -519,7 +522,7 @@ const TemperatureHistoryPanel = memo(function TemperatureHistoryPanel({
             })}
             {cpuPath && <path d={cpuPath} fill="none" stroke="#2f6df6" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />}
             {gpuPath && <path d={gpuPath} fill="none" stroke="#f97316" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />}
-            {fanPath && <path d={fanPath} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4 3" />}
+            {fanPath && <path d={fanPath} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
             </svg>
           </div>
         )}
@@ -534,9 +537,11 @@ export default function DeviceStatus({
   isConnected,
   deviceProductId,
   deviceModel,
+  deviceSettings,
   fanData,
   temperature,
   config,
+  coreServiceError,
   onConnect,
   onDisconnect,
   onConfigChange,
@@ -641,12 +646,23 @@ export default function DeviceStatus({
   const modeDisplayTitle = activeCurveProfileName ? t('deviceStatus.mode.withProfile', { mode: modeTitle, profile: activeCurveProfileName }) : modeTitle;
   const fanSpinDuration = getFanSpinDuration(fanData?.currentRpm);
   const maxRpmInfo = useMemo(() => getReportedMaxRpm(fanData?.gearSettings, fanData?.maxGear), [fanData?.gearSettings, fanData?.maxGear]);
-  const maxGearHighLevelRpm = maxRpmInfo.rpm;
+  const deviceExtremeRPM = deviceSettings?.gearRpmTable?.find((item) => item.label === 'extreme')?.rpm;
+  const maxGearHighLevelRpm = deviceExtremeRPM || maxRpmInfo.rpm;
   // 温度就绪判定：后端首次推送（updateTime > 0）且该路传感器读到非零值。
   // 单独按通路判 — 只有 GPU 没装独显时仍会保持 0，但 CPU 已就绪则只显示 GPU 占位。
   const tempPushed = (temperature?.updateTime ?? 0) > 0;
   const cpuReady = tempPushed && (temperature?.cpuTemp ?? 0) > 0;
   const gpuReady = tempPushed && (temperature?.gpuTemp ?? 0) > 0;
+  // 参考温度：跟随设置页“控温温度来源”(max/cpu/gpu)，无该路读数时回退到综合最高温。
+  const referenceTemp = (() => {
+    const source = (((config as any).tempSource as string) || 'max') as 'max' | 'cpu' | 'gpu';
+    const cpu = temperature?.cpuTemp ?? 0;
+    const gpu = temperature?.gpuTemp ?? 0;
+    const max = temperature?.maxTemp ?? 0;
+    if (source === 'cpu') return cpu > 0 ? cpu : max;
+    if (source === 'gpu') return gpu > 0 ? gpu : max;
+    return max;
+  })();
   const bridgeStateLabel = bridgeStatus?.state === 'running_owned'
     ? t('deviceStatus.bridgeState.runningOwned')
     : bridgeStatus?.state === 'attached'
@@ -730,7 +746,11 @@ export default function DeviceStatus({
                   <span>{t('deviceStatus.hero.modeLine', { mode: modeTitle, description: modeDesc })}</span>
                 </div>
               )}
-              {!isConnected && <p className="mt-1 text-xs text-muted-foreground">{t('deviceStatus.hero.waitingBluetooth')}</p>}
+              {!isConnected && (
+                <p className={clsx('mt-1 text-xs', coreServiceError ? 'text-destructive' : 'text-muted-foreground')}>
+                  {coreServiceError ? t('deviceStatus.hero.coreUnavailable') : t('deviceStatus.hero.waitingBluetooth')}
+                </p>
+              )}
             </div>
           </div>
 
@@ -941,7 +961,7 @@ export default function DeviceStatus({
           transition={{ delay: 0.2, duration: 0.3 }}
           className="grid grid-cols-1 items-stretch gap-2.5 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.95fr)]"
         >
-          <MiniFanCurveChart curve={config.fanCurve} currentTemp={temperature?.maxTemp} onOpen={onOpenCurveEditor} />
+          <MiniFanCurveChart curve={config.fanCurve} currentTemp={referenceTemp} onOpen={onOpenCurveEditor} />
           <TemperatureHistoryPanel
             points={temperatureHistory}
             enabled={temperatureHistoryEnabled}

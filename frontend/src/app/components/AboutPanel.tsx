@@ -9,6 +9,16 @@ import { BRAND } from '../lib/brand';
 import { apiService } from '../services/api';
 import { Badge, Button, ScrollArea } from './ui/index';
 
+type ReleaseChannel = 'stable' | 'prerelease';
+
+type GithubRelease = {
+  tag_name?: string;
+  html_url?: string;
+  body?: string;
+  prerelease?: boolean;
+  draft?: boolean;
+};
+
 function openUrl(url: string) {
   try {
     BrowserOpenURL(url);
@@ -18,9 +28,37 @@ function openUrl(url: string) {
 }
 
 function isLatestVersion(currentVersion: string, latestVersion: string) {
-  const parse = (value: string) => (value.match(/\d+/g) || []).map((item) => Number(item));
-  const current = parse(currentVersion);
-  const latest = parse(latestVersion);
+  const normalize = (value: string) => value.trim().replace(/^v/i, '').toLowerCase();
+  const currentRaw = normalize(currentVersion);
+  const latestRaw = normalize(latestVersion);
+  if (!currentRaw || !latestRaw) return true;
+  if (currentRaw === latestRaw) return true;
+
+  const parseNightly = (value: string): number | null => {
+    const match = value.match(/^nightly[-.]?(\d{8})$/i);
+    return match ? Number(match[1]) : null;
+  };
+
+  const parseSemverParts = (value: string): number[] | null => {
+    const base = value.split('-')[0].split('+')[0];
+    if (!/^\d+(\.\d+){0,3}$/.test(base)) return null;
+    return base.split('.').map((part) => Number(part));
+  };
+
+  const currentNightly = parseNightly(currentRaw);
+  const latestNightly = parseNightly(latestRaw);
+  if (currentNightly !== null && latestNightly !== null) {
+    return latestNightly <= currentNightly;
+  }
+
+  const currentSemver = parseSemverParts(currentRaw);
+  const latestSemver = parseSemverParts(latestRaw);
+  if (!currentSemver || !latestSemver) {
+    return false;
+  }
+
+  const current = currentSemver;
+  const latest = latestSemver;
   const length = Math.max(current.length, latest.length);
 
   for (let index = 0; index < length; index += 1) {
@@ -38,9 +76,11 @@ const ABOUT_CARD_CLASS = 'min-w-0 rounded-3xl border border-border/70 bg-card p-
 export default function AboutPanel() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = useState('');
+  const [releaseChannel, setReleaseChannel] = useState<ReleaseChannel>('stable');
   const [latestReleaseTag, setLatestReleaseTag] = useState('');
-  const [latestReleaseUrl, setLatestReleaseUrl] = useState(BRAND.latestReleaseUrl);
+  const [latestReleaseUrl, setLatestReleaseUrl] = useState<string>(BRAND.latestReleaseUrl);
   const [latestReleaseBody, setLatestReleaseBody] = useState('');
+  const [latestReleaseIsPrerelease, setLatestReleaseIsPrerelease] = useState(false);
   const [releaseLoading, setReleaseLoading] = useState(false);
   const [releaseError, setReleaseError] = useState('');
   const [isSponsorHovered, setIsSponsorHovered] = useState(false);
@@ -69,29 +109,50 @@ export default function AboutPanel() {
     [t],
   );
 
-  const checkLatestRelease = useCallback(async () => {
+  const checkLatestRelease = useCallback(async (channel: ReleaseChannel = releaseChannel) => {
     setReleaseLoading(true);
     setReleaseError('');
+
+    const headers = { Accept: 'application/vnd.github+json' };
+
     try {
-      const response = await fetch(BRAND.latestReleaseApiUrl, {
-        headers: { Accept: 'application/vnd.github+json' },
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      let targetRelease: GithubRelease | null = null;
+
+      if (channel === 'prerelease') {
+        const response = await fetch(`${BRAND.releasesApiUrl}?per_page=30`, { headers });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const releases = (await response.json()) as GithubRelease[];
+        targetRelease = (Array.isArray(releases) ? releases : []).find((item) => !item?.draft && !!item?.prerelease) || null;
+
+        if (!targetRelease) {
+          setLatestReleaseTag('');
+          setLatestReleaseUrl(BRAND.latestReleaseUrl);
+          setLatestReleaseBody('');
+          setLatestReleaseIsPrerelease(false);
+          setReleaseError(t('aboutPanel.version.noPrereleaseFound'));
+          return;
+        }
+      } else {
+        const response = await fetch(BRAND.latestReleaseApiUrl, { headers });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        targetRelease = (await response.json()) as GithubRelease;
       }
-      const data = await response.json();
-      setLatestReleaseTag(data?.tag_name || '');
-      setLatestReleaseUrl(data?.html_url || BRAND.latestReleaseUrl);
-      setLatestReleaseBody(typeof data?.body === 'string' ? data.body.trim() : '');
+
+      setLatestReleaseTag(targetRelease?.tag_name || '');
+      setLatestReleaseUrl(targetRelease?.html_url || BRAND.latestReleaseUrl);
+      setLatestReleaseBody(typeof targetRelease?.body === 'string' ? targetRelease.body.trim() : '');
+      setLatestReleaseIsPrerelease(!!targetRelease?.prerelease);
     } catch {
       setLatestReleaseTag('');
       setLatestReleaseUrl(BRAND.latestReleaseUrl);
       setLatestReleaseBody('');
+      setLatestReleaseIsPrerelease(false);
       setReleaseError(t('aboutPanel.version.checkFailed'));
     } finally {
       setReleaseLoading(false);
     }
-  }, [t]);
+  }, [releaseChannel, t]);
 
   useEffect(() => {
     let disposed = false;
@@ -108,8 +169,8 @@ export default function AboutPanel() {
   }, []);
 
   useEffect(() => {
-    void checkLatestRelease();
-  }, [checkLatestRelease]);
+    void checkLatestRelease(releaseChannel);
+  }, [checkLatestRelease, releaseChannel]);
 
   const clearSponsorHoverTimer = useCallback(() => {
     if (sponsorHoverTimerRef.current !== null) {
@@ -259,13 +320,42 @@ export default function AboutPanel() {
 
               <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
                 <div className="flex flex-wrap gap-2">
-                  <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-3 py-1 text-xs text-muted-foreground">
+                  <span className="relative inline-flex items-center rounded-full border border-border/70 bg-background px-3 py-1 text-xs text-muted-foreground">
                     {t('aboutPanel.version.current', { version: appVersion ? `v${appVersion}` : '--' })}
+                    {hasNewVersion && (
+                      <span
+                        className="pointer-events-none absolute -right-1 -top-1 size-2 shrink-0 rounded-full bg-red-500"
+                        aria-label="有新版本"
+                        title="有新版本"
+                      />
+                    )}
                   </span>
                   <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-3 py-1 text-xs text-muted-foreground">
                     {t('aboutPanel.version.latest', { version: releaseLoading ? t('aboutPanel.version.checkingShort') : latestReleaseTag || '--' })}
                   </span>
-                  {hasNewVersion && <Badge variant="warning">{t('aboutPanel.version.updatable')}</Badge>}
+                  <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-3 py-1 text-xs text-muted-foreground">
+                    {releaseChannel === 'prerelease' ? t('aboutPanel.version.channelPrerelease') : t('aboutPanel.version.channelStable')}
+                  </span>
+                  {latestReleaseIsPrerelease && <Badge variant="info">{t('aboutPanel.version.prereleaseBadge')}</Badge>}
+                </div>
+
+                <div className="mt-3 inline-flex rounded-xl border border-border/70 bg-background/70 p-1">
+                  <button
+                    type="button"
+                    className={`rounded-lg px-3 py-1 text-xs transition ${releaseChannel === 'stable' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => setReleaseChannel('stable')}
+                    disabled={releaseLoading}
+                  >
+                    {t('aboutPanel.version.channelStable')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded-lg px-3 py-1 text-xs transition ${releaseChannel === 'prerelease' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => setReleaseChannel('prerelease')}
+                    disabled={releaseLoading}
+                  >
+                    {t('aboutPanel.version.channelPrerelease')}
+                  </button>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -274,7 +364,7 @@ export default function AboutPanel() {
                     size="sm"
                     loading={releaseLoading}
                     onClick={() => {
-                      void checkLatestRelease();
+                      void checkLatestRelease(releaseChannel);
                     }}
                     icon={<RefreshCw className="h-3.5 w-3.5" />}
                   >
@@ -315,24 +405,6 @@ export default function AboutPanel() {
               </div>
             </div>
 
-            {hasNewVersion && (
-              <div className="mt-5 border-t border-border/60 pt-5">
-                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  <span>{t('aboutPanel.version.newVersionFound', { version: latestReleaseTag })}</span>
-                </div>
-
-                <div className="mt-3 rounded-2xl border border-border/70 bg-background/70 p-3">
-                  {latestReleaseBody ? (
-                    <ScrollArea className="max-h-52">
-                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">{latestReleaseBody}</p>
-                    </ScrollArea>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">{t('aboutPanel.version.emptyReleaseNotes')}</p>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className={ABOUT_CARD_CLASS}>
@@ -392,6 +464,57 @@ export default function AboutPanel() {
               </button>
             </div>
           </div>
+
+          {hasNewVersion && (
+            <div className={`${ABOUT_CARD_CLASS} lg:col-span-2`}>
+              <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+                <Rocket className="h-4 w-4 text-primary" />
+                <span>{t('aboutPanel.version.newVersionFound', { version: latestReleaseTag })}</span>
+                {latestReleaseIsPrerelease && <Badge variant="info">{t('aboutPanel.version.prereleaseBadge')}</Badge>}
+              </div>
+
+              <div className="mt-3 rounded-2xl border border-border/70 bg-background/70 p-3">
+                {latestReleaseBody ? (
+                  <ScrollArea className="h-56 pr-2">
+                    <div className="flex flex-col gap-2 text-xs leading-relaxed text-foreground/90">
+                      {latestReleaseBody.split(/\r?\n/).map((line, index) => {
+                        const trimmed = line.trim();
+                        if (!trimmed) {
+                          return <div key={`release-line-${index}`} className="h-1" />;
+                        }
+
+                        if (/^#{1,6}\s+/.test(trimmed)) {
+                          return (
+                            <div key={`release-line-${index}`} className="pt-1 text-sm font-semibold text-foreground">
+                              {trimmed.replace(/^#{1,6}\s+/, '')}
+                            </div>
+                          );
+                        }
+
+                        if (/^[-*]\s+/.test(trimmed) || /^\d+\.\s+/.test(trimmed)) {
+                          const content = trimmed.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '');
+                          return (
+                            <div key={`release-line-${index}`} className="flex items-start gap-2 text-foreground/90">
+                              <span className="mt-[1px] text-muted-foreground">-</span>
+                              <span>{content}</span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <p key={`release-line-${index}`} className="text-foreground/85">
+                            {trimmed}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{t('aboutPanel.version.emptyReleaseNotes')}</p>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className={`${ABOUT_CARD_CLASS} lg:col-span-2`}>
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">

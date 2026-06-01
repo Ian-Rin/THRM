@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TIANLI0/THRM/internal/deviceproto"
 	"github.com/TIANLI0/THRM/internal/types"
 )
 
@@ -129,24 +130,17 @@ func ensureMinColors(colors []types.RGBColor, min int) []types.RGBColor {
 
 // sendLightCommandLocked 发送一条灯效命令。
 func (m *Manager) sendLightCommandLocked(fields ...byte) error {
+	if len(fields) < 2 {
+		return fmt.Errorf("invalid light command")
+	}
+	frame := deviceproto.BuildFrame(fields[0], fields[2:]...)
 	buf := m.lightCmdBuf[:]
 	for i := range buf {
 		buf[i] = 0
 	}
-	// HID Report 帧布局：buf[0] = ReportID(0x02)；buf[1..] = 0x5A 0xA5 fields... checksum
-	buf[0] = 0x02
-	buf[1] = 0x5A
-	buf[2] = 0xA5
-	copy(buf[3:], fields)
-	// checksum 计算范围：从 fields[0] 起到 fields 末尾。
-	// 旧实现 cmd = [0x5A, 0xA5, fields...]，checksum 取 cmd[2:] 即 fields。
-	var sum uint16
-	end := 3 + len(fields)
-	for i := 3; i < end; i++ {
-		sum += uint16(buf[i])
-	}
-	buf[end] = byte(sum & 0xFF)
+	copy(buf, deviceproto.BuildReport(frame, hidLightReportLen))
 
+	m.recordDebugFrame("tx", types.DeviceTypeHID, buf)
 	if _, err := m.device.Write(buf); err != nil {
 		return err
 	}

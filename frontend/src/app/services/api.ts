@@ -35,6 +35,9 @@ import { types } from '../../../wailsjs/go/models';
 
 import type {
   DeviceInfo,
+  DeviceDebugCommandResult,
+  DeviceDebugFrame,
+  DeviceSettings,
   DebugInfo,
   LegionFnQSupportPayload,
   LegionPowerModePayload,
@@ -53,6 +56,10 @@ class ApiService {
 
   async getDeviceStatus(): Promise<any> {
     return await GetDeviceStatus();
+  }
+
+  async refreshDeviceSettings(): Promise<DeviceSettings | null> {
+    return await (window as any).go?.main?.App?.RefreshDeviceSettings?.();
   }
 
   // 配置管理
@@ -224,6 +231,10 @@ class ApiService {
     return EventsOn('device-error', callback);
   }
 
+  onDeviceSettingsUpdate(callback: (data: DeviceSettings) => void): () => void {
+    return EventsOn('device-settings-update', callback);
+  }
+
   onFanDataUpdate(callback: (data: types.FanData) => void): () => void {
     return EventsOn('fan-data-update', callback);
   }
@@ -261,6 +272,15 @@ class ApiService {
     return await SetDebugMode(enabled);
   }
 
+  async sendDeviceDebugCommand(hexCommand: string, waitMs = 800): Promise<DeviceDebugCommandResult> {
+    return await (window as any).go?.main?.App?.SendDeviceDebugCommand(hexCommand, waitMs);
+  }
+
+  async getDeviceDebugFrames(): Promise<DeviceDebugFrame[]> {
+    const frames = await (window as any).go?.main?.App?.GetDeviceDebugFrames();
+    return Array.isArray(frames) ? frames as DeviceDebugFrame[] : [];
+  }
+
   // ── 自定义主题 ──
   // 注：以下方法走 Wails 运行时自动暴露的 window.go.main.App 代理，
   // 因此无需重新生成强类型绑定即可调用（与上面若干方法同理）。
@@ -293,6 +313,14 @@ class ApiService {
 
   onHeartbeat(callback: (timestamp: number) => void): () => void {
     return EventsOn('heartbeat', callback);
+  }
+
+  onCoreServiceError(callback: (message: string) => void): () => void {
+    return EventsOn('core-service-error', callback);
+  }
+
+  onCoreServiceOK(callback: () => void): () => void {
+    return EventsOn('core-service-ok', callback);
   }
 }
 

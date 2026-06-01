@@ -34,10 +34,11 @@ type RequestType string
 
 const (
 	// 设备相关
-	ReqConnect           RequestType = "Connect"
-	ReqDisconnect        RequestType = "Disconnect"
-	ReqGetDeviceStatus   RequestType = "GetDeviceStatus"
-	ReqGetCurrentFanData RequestType = "GetCurrentFanData"
+	ReqConnect               RequestType = "Connect"
+	ReqDisconnect            RequestType = "Disconnect"
+	ReqGetDeviceStatus       RequestType = "GetDeviceStatus"
+	ReqGetCurrentFanData     RequestType = "GetCurrentFanData"
+	ReqRefreshDeviceSettings RequestType = "RefreshDeviceSettings"
 
 	// 配置相关
 	ReqGetConfig                RequestType = "GetConfig"
@@ -86,9 +87,11 @@ const (
 	ReqQuitApp    RequestType = "QuitApp"
 
 	// 调试相关
-	ReqGetDebugInfo          RequestType = "GetDebugInfo"
-	ReqSetDebugMode          RequestType = "SetDebugMode"
-	ReqUpdateGuiResponseTime RequestType = "UpdateGuiResponseTime"
+	ReqGetDebugInfo           RequestType = "GetDebugInfo"
+	ReqSetDebugMode           RequestType = "SetDebugMode"
+	ReqSendDeviceDebugCommand RequestType = "SendDeviceDebugCommand"
+	ReqGetDeviceDebugFrames   RequestType = "GetDeviceDebugFrames"
+	ReqUpdateGuiResponseTime  RequestType = "UpdateGuiResponseTime"
 
 	// 系统相关
 	ReqPing              RequestType = "Ping"
@@ -137,6 +140,7 @@ const (
 	EventDeviceConnected          = "device-connected"
 	EventDeviceDisconnected       = "device-disconnected"
 	EventDeviceError              = "device-error"
+	EventDeviceSettingsUpdate     = "device-settings-update"
 	EventConfigUpdate             = "config-update"
 	EventHotkeyTriggered          = "hotkey-triggered"
 	EventLegionPowerModeUpdate    = "legion-power-mode-update"
@@ -695,6 +699,12 @@ type SetStringParams struct {
 // SetIntParams 整数参数
 type SetIntParams struct {
 	Value int `json:"value"`
+}
+
+// DeviceDebugCommandParams contains a raw protocol command for the debug panel.
+type DeviceDebugCommandParams struct {
+	Hex    string `json:"hex"`
+	WaitMs int    `json:"waitMs"`
 }
 
 // SetAutoStartWithMethodParams 设置自启动方式参数

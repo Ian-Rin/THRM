@@ -57,8 +57,9 @@ func (a *App) InitSystemTray() {
 }
 
 // UpdateGuiResponseTime 更新GUI响应时间（供前端调用）
-func (a *App) UpdateGuiResponseTime() {
-	a.sendRequest(ipc.ReqUpdateGuiResponseTime, nil)
+func (a *App) UpdateGuiResponseTime() error {
+	_, err := a.sendRequest(ipc.ReqUpdateGuiResponseTime, nil)
+	return err
 }
 
 // GetDebugInfo 获取调试信息
@@ -82,4 +83,29 @@ func (a *App) SetDebugMode(enabled bool) error {
 		return fmt.Errorf("%s", resp.Error)
 	}
 	return nil
+}
+
+func (a *App) SendDeviceDebugCommand(hexCommand string, waitMs int) (DeviceDebugCommandResult, error) {
+	resp, err := a.sendRequest(ipc.ReqSendDeviceDebugCommand, ipc.DeviceDebugCommandParams{Hex: hexCommand, WaitMs: waitMs})
+	if err != nil {
+		return DeviceDebugCommandResult{}, err
+	}
+	if !resp.Success {
+		return DeviceDebugCommandResult{}, fmt.Errorf("%s", resp.Error)
+	}
+	var result DeviceDebugCommandResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return DeviceDebugCommandResult{}, err
+	}
+	return result, nil
+}
+
+func (a *App) GetDeviceDebugFrames() []DeviceDebugFrame {
+	resp, err := a.sendRequest(ipc.ReqGetDeviceDebugFrames, nil)
+	if err != nil || !resp.Success {
+		return nil
+	}
+	var frames []DeviceDebugFrame
+	json.Unmarshal(resp.Data, &frames)
+	return frames
 }

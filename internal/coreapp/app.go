@@ -42,6 +42,7 @@ type CoreApp struct {
 	isConnected             bool
 	monitoringTemp          atomic.Bool
 	currentTemp             types.TemperatureData
+	deviceSettings          *types.DeviceSettings
 	lastDeviceMode          string
 	userSetAutoControl      bool
 	isAutoStartLaunch       bool

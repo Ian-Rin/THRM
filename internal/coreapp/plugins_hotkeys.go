@@ -2,7 +2,6 @@ package coreapp
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/TIANLI0/THRM/internal/appmeta"
 	hotkeysvc "github.com/TIANLI0/THRM/internal/hotkey"
@@ -375,7 +374,7 @@ func (a *CoreApp) toggleManualGearByHotkey() (string, error) {
 		return "", fmt.Errorf("应用手动挡位失败")
 	}
 
-	rpm := getManualGearRPM(nextGear, nextLevel)
+	rpm := cfg.ResolveGearRPM(nextGear, nextLevel)
 	if rpm > 0 {
 		return fmt.Sprintf("手动挡位: %s %s (%d RPM)", nextGear, nextLevel, rpm), nil
 	}
@@ -469,25 +468,4 @@ func (a *CoreApp) getRememberedManualLevel(gear, fallback string) string {
 		return normalizeManualLevel(level)
 	}
 	return normalizeManualLevel(fallback)
-}
-
-func getManualGearRPM(gear, level string) int {
-	commands, ok := types.GearCommands[gear]
-	if !ok {
-		return 0
-	}
-
-	for _, cmd := range commands {
-		if (level == "低" && containsLevel(cmd.Name, "低")) ||
-			(level == "中" && containsLevel(cmd.Name, "中")) ||
-			(level == "高" && containsLevel(cmd.Name, "高")) {
-			return cmd.RPM
-		}
-	}
-
-	return 0
-}
-
-func containsLevel(name, level string) bool {
-	return strings.Contains(name, level)
 }

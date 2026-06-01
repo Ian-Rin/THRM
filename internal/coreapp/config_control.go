@@ -74,6 +74,7 @@ func (a *CoreApp) UpdateConfig(cfg types.AppConfig) error {
 	}
 	normalizeHotkeyConfig(&cfg)
 	normalizeManualGearMemoryConfig(&cfg)
+	types.NormalizeManualGearRPM(&cfg)
 
 	cfg.ConfigPath = oldCfg.ConfigPath
 	if err := a.configManager.Update(cfg); err != nil {
@@ -175,9 +176,10 @@ func (a *CoreApp) applyCurrentGearSetting() {
 		setGear = cfg.ManualGear
 	}
 	level := a.getRememberedManualLevel(setGear, cfg.ManualLevel)
+	rpm := cfg.ResolveGearRPM(setGear, level)
 
-	a.logInfo("应用当前挡位设置: %s %s", setGear, level)
-	a.deviceManager.SetManualGear(setGear, level)
+	a.logInfo("应用当前挡位设置: %s %s (%d RPM)", setGear, level, rpm)
+	a.deviceManager.SetManualGearRPM(setGear, level, rpm)
 }
 
 // SetManualGear 设置手动挡位
@@ -189,6 +191,8 @@ func (a *CoreApp) SetManualGear(gear, level string) bool {
 		cfg.ManualGearLevels = map[string]string{}
 	}
 	cfg.ManualGearLevels[gear] = normalizeManualLevel(level)
+	types.NormalizeManualGearRPM(&cfg)
+	rpm := cfg.ResolveGearRPM(gear, level)
 	a.configManager.Update(cfg)
 	a.rememberManualGearLevel(gear, level)
 
@@ -196,7 +200,7 @@ func (a *CoreApp) SetManualGear(gear, level string) bool {
 		a.ipcServer.BroadcastEvent(ipc.EventConfigUpdate, cfg)
 	}
 
-	return a.deviceManager.SetManualGear(gear, level)
+	return a.deviceManager.SetManualGearRPM(gear, level, rpm)
 }
 
 // SetCustomSpeed 设置自定义转速
@@ -431,4 +435,15 @@ func (a *CoreApp) SetDebugMode(enabled bool) error {
 	}
 
 	return nil
+}
+
+func (a *CoreApp) SendDeviceDebugCommand(hexCommand string, waitMs int) (types.DeviceDebugCommandResult, error) {
+	if !a.debugMode {
+		return types.DeviceDebugCommandResult{}, fmt.Errorf("请先开启调试模式")
+	}
+	return a.deviceManager.SendDebugCommand(hexCommand, waitMs)
+}
+
+func (a *CoreApp) GetDeviceDebugFrames() []types.DeviceDebugFrame {
+	return a.deviceManager.GetDebugFrames()
 }

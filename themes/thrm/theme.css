@@ -323,21 +323,12 @@ html[data-theme="thrm"] .glacier-metric-card:hover {
   border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
 }
 
-/* 控制卡：略微收紧内边距，并在右上角放一行装饰状态文字。 */
+/* 控制卡：略微收紧内边距。
+ * 注：原先在右上角用 ::after 放了一行 "AUX STATUS / SYNC" 装饰文字，
+ * 但该位置已被真实内容（CPU/GPU 型号胶囊 HardwareIdentitySummary）占用，
+ * 两者重叠，故移除该装饰，避免与显卡型号文字重合。 */
 html[data-theme="thrm"] .glacier-control-card {
   padding: 0.85rem;
-}
-
-html[data-theme="thrm"] .glacier-control-card::after {
-  content: "AUX STATUS / SYNC";
-  position: absolute;
-  right: 1.15rem;
-  top: 0.85rem;
-  pointer-events: none;
-  color: color-mix(in srgb, var(--primary) 28%, transparent);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.28em;
 }
 
 /* 小统计磁贴：玻璃质感 + 右上角一道短高光。 */

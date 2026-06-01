@@ -12,6 +12,7 @@ import (
 	"github.com/TIANLI0/THRM/internal/powernotify"
 	"github.com/TIANLI0/THRM/internal/smartcontrol"
 	"github.com/TIANLI0/THRM/internal/tray"
+	"github.com/TIANLI0/THRM/internal/types"
 	"github.com/TIANLI0/THRM/internal/version"
 )
 
@@ -60,6 +61,12 @@ func (a *CoreApp) Start() error {
 		a.configManager.Set(cfg)
 		if err := a.configManager.Save(); err != nil {
 			a.logError("保存挡位记忆默认配置失败: %v", err)
+		}
+	}
+	if types.NormalizeManualGearRPM(&cfg) {
+		a.configManager.Set(cfg)
+		if err := a.configManager.Save(); err != nil {
+			a.logError("保存挡位转速默认配置失败: %v", err)
 		}
 	}
 	if a.applyCachedLegionFnQSupport(&cfg) {
