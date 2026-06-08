@@ -178,6 +178,7 @@
       "stateLine": "Bridge status: {{state}}",
       "ownsProcess": "This instance owns the process",
       "sharedProcess": "This instance is reusing a shared process",
+      "transportLine": "Transport: {{transport}}",
       "pipeLine": "Named pipe: {{pipe}}",
       "diagnosticsLine": "Diagnostics: {{message}}",
       "reinitialize": "Reinitialize temperature monitoring"

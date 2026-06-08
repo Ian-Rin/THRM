@@ -178,6 +178,7 @@
       "stateLine": "桥接状态：{{state}}",
       "ownsProcess": "当前实例已接管进程",
       "sharedProcess": "当前实例复用共享进程",
+      "transportLine": "通信方式：{{transport}}",
       "pipeLine": "命名管道：{{pipe}}",
       "diagnosticsLine": "诊断信息：{{message}}",
       "reinitialize": "重新初始化温度监控"

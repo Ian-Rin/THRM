@@ -50,6 +50,7 @@ interface BridgeRuntimeStatus {
   working?: boolean;
   ownsProcess?: boolean;
   pipeName?: string;
+  transport?: string;
   lastError?: string;
 }
 
@@ -856,6 +857,7 @@ export default function DeviceStatus({
                         {typeof bridgeStatus.ownsProcess === 'boolean' ? ` · ${bridgeStatus.ownsProcess ? t('deviceStatus.bridgeWarning.ownsProcess') : t('deviceStatus.bridgeWarning.sharedProcess')}` : ''}
                       </p>
                     )}
+                    {bridgeStatus.transport && <p>{t('deviceStatus.bridgeWarning.transportLine', { transport: bridgeStatus.transport })}</p>}
                     {bridgeStatus.pipeName && <p>{t('deviceStatus.bridgeWarning.pipeLine', { pipe: bridgeStatus.pipeName })}</p>}
                     {bridgeStatus.lastError && bridgeStatus.lastError !== temperature?.bridgeMessage && <p>{t('deviceStatus.bridgeWarning.diagnosticsLine', { message: bridgeStatus.lastError })}</p>}
                   </div>

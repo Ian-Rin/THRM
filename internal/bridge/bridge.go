@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -13,21 +14,91 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Microsoft/go-winio"
 	"github.com/TIANLI0/THRM/internal/appmeta"
 	"github.com/TIANLI0/THRM/internal/types"
 	"golang.org/x/sys/windows"
 )
 
 type Manager struct {
-	cmd       *exec.Cmd
-	conn      net.Conn
-	pipeName  string
-	ownsCmd   bool
-	state     string
-	lastError string
-	mutex     sync.Mutex
-	logger    types.Logger
+	cmd          *exec.Cmd
+	conn         net.Conn
+	stdin        io.WriteCloser
+	stdout       io.ReadCloser
+	stdoutReader *bufio.Reader
+	pipeName     string
+	transport    string
+	ownsCmd      bool
+	state        string
+	lastError    string
+	mutex        sync.Mutex
+	logger       types.Logger
+}
+
+type stdioConn struct {
+	reader *bufio.Reader
+	stdin  io.WriteCloser
+	stdout io.ReadCloser
+}
+
+type stdioAddr string
+
+func newStdioConn(stdin io.WriteCloser, stdout io.ReadCloser, reader *bufio.Reader) net.Conn {
+	return &stdioConn{
+		reader: reader,
+		stdin:  stdin,
+		stdout: stdout,
+	}
+}
+
+func (c *stdioConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
+}
+
+func (c *stdioConn) Write(p []byte) (int, error) {
+	return c.stdin.Write(p)
+}
+
+func (c *stdioConn) Close() error {
+	var closeErr error
+	if c.stdin != nil {
+		closeErr = c.stdin.Close()
+		c.stdin = nil
+	}
+	if c.stdout != nil {
+		if err := c.stdout.Close(); closeErr == nil {
+			closeErr = err
+		}
+		c.stdout = nil
+	}
+	return closeErr
+}
+
+func (c *stdioConn) LocalAddr() net.Addr {
+	return stdioAddr("stdio-local")
+}
+
+func (c *stdioConn) RemoteAddr() net.Addr {
+	return stdioAddr("stdio-remote")
+}
+
+func (c *stdioConn) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (c *stdioConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (c *stdioConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+func (a stdioAddr) Network() string {
+	return "stdio"
+}
+
+func (a stdioAddr) String() string {
+	return string(a)
 }
 
 const (
@@ -36,7 +107,7 @@ const (
 	bridgeRestartPawnIOTimeout  = 20 * time.Second
 	bridgeExitTimeout           = 2 * time.Second
 	bridgeProcessExitWait       = 8 * time.Second
-	bridgeReconnectTimeout      = 2 * time.Second
+	bridgeStartupTimeout        = 5 * time.Second
 	windowsStillActive          = 259
 
 	BridgeStateNotStarted = "not_started"
@@ -73,88 +144,65 @@ func (m *Manager) EnsureRunning() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// If we already have a pipe connection, trust it and avoid an eager Ping.
-	// Slow hardware reads can legitimately occupy TempBridge for several seconds,
-	// and probing here would turn "busy" into a restart loop.
-	if m.conn != nil {
-		if m.ownsCmd {
+	if m.stdin != nil && m.stdoutReader != nil {
+		if isProcessRunning(m.cmd) {
 			m.setState(BridgeStateRunning, nil)
-		} else {
-			m.setState(BridgeStateAttached, nil)
-		}
-		return nil
-	}
-
-	// If the bridge process is still around, prefer reconnecting to its pipe
-	// instead of killing and relaunching it immediately.
-	if m.pipeName != "" {
-		conn, err := m.connectToPipe(m.pipeName, bridgeReconnectTimeout)
-		if err == nil {
-			m.conn = conn
-			if m.ownsCmd {
-				m.setState(BridgeStateRunning, nil)
-			} else {
-				m.setState(BridgeStateAttached, nil)
-			}
 			return nil
 		}
 
+		err := fmt.Errorf("bridge process exited unexpectedly")
 		m.setState(BridgeStateDegraded, err)
-		if m.ownsCmd && isProcessRunning(m.cmd) {
-			return fmt.Errorf("bridge reconnect failed: %w", err)
-		}
-
+		m.closeConnUnsafe()
 		m.releaseOwnedProcessUnsafe()
 		m.pipeName = ""
 	}
 
-	return m.start()
+	return m.startStdio()
 }
 
-func (m *Manager) start() error {
+func (m *Manager) startStdio() error {
 	m.setState(BridgeStateStarting, nil)
-
-	if conn, pipeName, err := m.connectToAnyPipe(appmeta.BridgePipeCandidates(), 500*time.Millisecond); err == nil {
-		m.conn = conn
-		m.pipeName = pipeName
-		m.ownsCmd = false
-		m.setState(BridgeStateAttached, nil)
-		m.logger.Info("复用已存在的桥接程序，管道名称: %s", pipeName)
-		return nil
-	}
 
 	exeDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
 		m.setState(BridgeStateFailed, err)
-		return fmt.Errorf("获取程序目录失败: %v", err)
+		return fmt.Errorf("鑾峰彇绋嬪簭鐩綍澶辫触: %v", err)
 	}
 
 	possiblePaths := appmeta.BridgeExecutableCandidates(exeDir)
 	bridgePath := appmeta.FirstExistingPath(possiblePaths)
 	if bridgePath == "" {
-		err := fmt.Errorf("%s 不存在，已尝试以下路径: %v", appmeta.BridgeExecutableName, possiblePaths)
+		err := fmt.Errorf("%s 涓嶅瓨鍦紝宸插皾璇曚互涓嬭矾寰? %v", appmeta.BridgeExecutableName, possiblePaths)
 		m.setState(BridgeStateFailed, err)
 		return err
 	}
 
-	m.logger.Info("找到桥接程序: %s", bridgePath)
+	m.logger.Info("鎵惧埌妗ยู帴绋嬪簭: %s", bridgePath)
 
-	cmd := exec.Command(bridgePath, "--pipe")
+	cmd := exec.Command(bridgePath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		m.setState(BridgeStateFailed, err)
+		return fmt.Errorf("鍒涘缓 stdin 绠￠亾澶辫触: %v", err)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("创建 stdout 管道失败: %v", err)
+		m.setState(BridgeStateFailed, err)
+		return fmt.Errorf("鍒涘缓 stdout 绠￠亾澶辫触: %v", err)
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("创建 stderr 管道失败: %v", err)
+		m.setState(BridgeStateFailed, err)
+		return fmt.Errorf("鍒涘缓 stderr 绠￠亾澶辫触: %v", err)
 	}
 
 	if err := cmd.Start(); err != nil {
 		m.setState(BridgeStateFailed, err)
-		return fmt.Errorf("启动桥接程序失败: %v", err)
+		return fmt.Errorf("鍚姩妗ยู帴绋嬪簭澶辫触: %v", err)
 	}
 
 	go func() {
@@ -162,100 +210,62 @@ func (m *Manager) start() error {
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line != "" {
-				m.logger.Error("桥接程序 stderr: %s", line)
+				m.logger.Error("妗ยู帴绋嬪簭 stderr: %s", line)
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			m.logger.Debug("读取桥接程序 stderr 失败: %v", err)
+			m.logger.Debug("璇诲彇妗ยู帴绋嬪簭 stderr 澶辫触: %v", err)
 		}
 	}()
 
-	scanner := bufio.NewScanner(stdout)
-	var pipeName string
-	var attachMode bool
-	timeout := time.NewTimer(5 * time.Second)
-	defer timeout.Stop()
-
-	done := make(chan struct{})
-	go func() {
-		if scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if after, ok := strings.CutPrefix(line, "PIPE:"); ok {
-				parts := strings.SplitN(after, "|", 2)
-				pipeName = strings.TrimSpace(parts[0])
-				if len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[1]), "ATTACH") {
-					attachMode = true
-				}
-			} else if after, ok := strings.CutPrefix(line, "ERROR:"); ok {
-				m.logger.Error("桥接程序启动错误: %s", strings.TrimSpace(after))
-			}
-		}
-		close(done)
-
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line != "" {
-				m.logger.Debug("桥接程序 stdout: %s", line)
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			m.logger.Debug("读取桥接程序 stdout 失败: %v", err)
-		}
-	}()
-
-	select {
-	case <-done:
-		if pipeName == "" {
-			_ = cmd.Process.Kill()
-			err := fmt.Errorf("未能获取管道名称")
-			m.setState(BridgeStateFailed, err)
-			return err
-		}
-	case <-timeout.C:
+	stdoutReader := bufio.NewReader(stdout)
+	if err := m.waitForReady(stdoutReader, bridgeStartupTimeout); err != nil {
 		_ = cmd.Process.Kill()
-		err := fmt.Errorf("等待桥接程序启动超时")
 		m.setState(BridgeStateFailed, err)
 		return err
 	}
 
-	conn, err := m.connectToPipe(pipeName, 5*time.Second)
-	if err != nil {
-		_ = cmd.Process.Kill()
-		m.setState(BridgeStateFailed, err)
-		return fmt.Errorf("连接管道失败: %v", err)
-	}
-
-	m.conn = conn
-	m.pipeName = pipeName
-	m.ownsCmd = !attachMode
-	if attachMode {
-		go func() {
-			_ = cmd.Wait()
-		}()
-		m.setState(BridgeStateAttached, nil)
-		m.logger.Info("桥接程序已存在，附着到共享实例，管道名称: %s", pipeName)
-		return nil
-	}
-
 	m.cmd = cmd
+	m.stdin = stdin
+	m.stdout = stdout
+	m.stdoutReader = stdoutReader
+	m.conn = newStdioConn(stdin, stdout, stdoutReader)
+	m.pipeName = ""
+	m.transport = "stdio"
+	m.ownsCmd = true
 	m.setState(BridgeStateRunning, nil)
-	m.logger.Info("桥接程序启动成功，管道名称: %s", pipeName)
+	m.logger.Info("妗ยู帴绋嬪簭鍚姩鎴愬姛锛岄€氫俊鏂瑰紡: stdio")
 	return nil
 }
 
-func (m *Manager) connectToAnyPipe(pipeNames []string, timeout time.Duration) (net.Conn, string, error) {
-	var lastErr error
-	for _, pipeName := range pipeNames {
-		conn, err := m.connectToPipe(pipeName, timeout)
-		if err == nil {
-			return conn, pipeName, nil
+func (m *Manager) waitForReady(reader *bufio.Reader, timeout time.Duration) error {
+	readyCh := make(chan error, 1)
+	go func() {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			readyCh <- fmt.Errorf("read bridge startup handshake failed: %v", err)
+			return
 		}
-		lastErr = err
+
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.EqualFold(line, "READY:STDIO"):
+			readyCh <- nil
+		case strings.HasPrefix(line, "ERROR:"):
+			readyCh <- fmt.Errorf("bridge startup failed: %s", strings.TrimSpace(strings.TrimPrefix(line, "ERROR:")))
+		case line == "":
+			readyCh <- fmt.Errorf("bridge did not return a startup handshake")
+		default:
+			readyCh <- fmt.Errorf("bridge returned an unexpected startup line: %s", line)
+		}
+	}()
+
+	select {
+	case err := <-readyCh:
+		return err
+	case <-time.After(timeout):
+		return fmt.Errorf("waiting for bridge startup timed out")
 	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("未找到可用桥接管道")
-	}
-	return nil, "", lastErr
 }
 
 func bridgeCommandTimeoutFor(cmdType string) time.Duration {
@@ -269,39 +279,6 @@ func bridgeCommandTimeoutFor(cmdType string) time.Duration {
 	default:
 		return bridgeDefaultCommandTimeout
 	}
-}
-
-func (m *Manager) connectToPipe(pipeName string, timeout time.Duration) (net.Conn, error) {
-	pipePath := `\\.\pipe\` + pipeName
-	deadline := time.Now().Add(timeout)
-	retryCount := 0
-	backoff := 100 * time.Millisecond
-	const maxBackoff = 1000 * time.Millisecond
-
-	m.logger.Debug("尝试连接到管道: %s", pipePath)
-
-	for time.Now().Before(deadline) {
-		conn, err := winio.DialPipe(pipePath, &timeout)
-		if err == nil {
-			m.logger.Info("成功连接到管道，重试次数: %d", retryCount)
-			return conn, nil
-		}
-
-		retryCount++
-		if retryCount%5 == 0 {
-			m.logger.Debug("连接管道重试中... 第%d次尝试，错误: %v", retryCount, err)
-		}
-
-		time.Sleep(backoff)
-		if backoff < maxBackoff {
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("连接管道超时，总计重试%d次，最后错误可能是权限或管道未就绪", retryCount)
 }
 
 func (m *Manager) SendCommand(cmdType, data string) (*types.BridgeResponse, error) {
@@ -366,6 +343,16 @@ func (m *Manager) closeConnUnsafe() {
 		_ = m.conn.Close()
 		m.conn = nil
 	}
+	if m.stdin != nil {
+		_ = m.stdin.Close()
+		m.stdin = nil
+	}
+	if m.stdout != nil {
+		_ = m.stdout.Close()
+		m.stdout = nil
+	}
+	m.stdoutReader = nil
+	m.transport = ""
 }
 
 func (m *Manager) releaseOwnedProcessUnsafe() {
@@ -489,6 +476,7 @@ func (m *Manager) GetStatus() map[string]any {
 	state := m.state
 	ownsCmd := m.ownsCmd
 	pipeName := m.pipeName
+	transport := m.transport
 	lastError := m.lastError
 	m.mutex.Unlock()
 
@@ -509,6 +497,7 @@ func (m *Manager) GetStatus() map[string]any {
 			"state":       state,
 			"ownsProcess": ownsCmd,
 			"pipeName":    pipeName,
+			"transport":   transport,
 			"lastError":   lastError,
 			"triedPaths":  possiblePaths,
 			"error":       fmt.Sprintf("%s 不存在", appmeta.BridgeExecutableName),
@@ -521,6 +510,7 @@ func (m *Manager) GetStatus() map[string]any {
 	state = m.state
 	ownsCmd = m.ownsCmd
 	pipeName = m.pipeName
+	transport = m.transport
 	lastError = m.lastError
 	m.mutex.Unlock()
 
@@ -531,6 +521,7 @@ func (m *Manager) GetStatus() map[string]any {
 		"state":       state,
 		"ownsProcess": ownsCmd,
 		"pipeName":    pipeName,
+		"transport":   transport,
 		"lastError":   lastError,
 		"testData":    testResult,
 	}

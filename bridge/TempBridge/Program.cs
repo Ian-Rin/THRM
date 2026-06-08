@@ -159,15 +159,24 @@ namespace THRM.TempBridge
 
         static void Main(string[] args)
         {
+            bool diagnosticMode = ShouldRunDiagnosticMode(args);
+            bool pipeMode = ShouldRunPipeMode(args);
+
             try
             {
-                if (ShouldRunDiagnosticMode(args))
+                if (diagnosticMode)
                 {
                     RunConsoleDiagnostics();
                     return;
                 }
 
                 // 初始化硬件监控
+                if (!pipeMode)
+                {
+                    RunStdioMode();
+                    return;
+                }
+
                 using (var instanceHandle = AcquirePipeInstance())
                 {
                     if (instanceHandle == null)
@@ -189,7 +198,7 @@ namespace THRM.TempBridge
             }
             catch (Exception ex)
             {
-                if (ShouldRunDiagnosticMode(args))
+                if (diagnosticMode)
                 {
                     Console.Error.WriteLine("THRM TempBridge 启动失败");
                     Console.Error.WriteLine($"错误: {ex.Message}");
@@ -208,6 +217,20 @@ namespace THRM.TempBridge
                     singleInstanceMutex.Dispose();
                     singleInstanceMutex = null;
                 }
+            }
+        }
+
+        static void RunStdioMode()
+        {
+            InitializeHardwareMonitor();
+
+            using (var stdin = Console.OpenStandardInput())
+            using (var stdout = Console.OpenStandardOutput())
+            using (var reader = new StreamReader(stdin))
+            using (var writer = new StreamWriter(stdout) { AutoFlush = true })
+            {
+                writer.WriteLine("READY:STDIO");
+                ServeCommandLoop(reader, writer);
             }
         }
 
@@ -236,7 +259,7 @@ namespace THRM.TempBridge
 
         static bool ShouldRunDiagnosticMode(string[] args)
         {
-            if (HasArg(args, "--pipe"))
+            if (ShouldRunPipeMode(args))
             {
                 return false;
             }
@@ -247,6 +270,11 @@ namespace THRM.TempBridge
             }
 
             return Environment.UserInteractive && !Console.IsOutputRedirected;
+        }
+
+        static bool ShouldRunPipeMode(string[] args)
+        {
+            return HasArg(args, "--pipe");
         }
 
         static bool HasArg(string[] args, string expected)
@@ -569,43 +597,9 @@ namespace THRM.TempBridge
                         pipeServer.WaitForConnection();
 
                         using (var reader = new StreamReader(pipeServer))
-                        using (var writer = new StreamWriter(pipeServer))
+                        using (var writer = new StreamWriter(pipeServer) { AutoFlush = true })
                         {
-                            while (pipeServer.IsConnected && running)
-                            {
-                                try
-                                {
-                                    string commandJson = reader.ReadLine();
-                                    if (string.IsNullOrEmpty(commandJson))
-                                        break;
-
-                                    var command = JsonConvert.DeserializeObject<Command>(commandJson);
-                                    var response = ProcessCommand(command);
-
-                                    string responseJson = JsonConvert.SerializeObject(response);
-                                    writer.WriteLine(responseJson);
-                                    writer.Flush();
-                                    TrimWorkingSetIfIdle();
-
-                                    if (command.Type == "Exit")
-                                    {
-                                        running = false;
-                                        break;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    var errorResponse = new Response
-                                    {
-                                        Success = false,
-                                        Error = ex.Message
-                                    };
-                                    string errorJson = JsonConvert.SerializeObject(errorResponse);
-                                    writer.WriteLine(errorJson);
-                                    writer.Flush();
-                                    break;
-                                }
-                            }
+                            ServeCommandLoop(reader, writer);
                         }
                     }
                 }
@@ -616,6 +610,51 @@ namespace THRM.TempBridge
                         Console.WriteLine($"管道错误: {ex.Message}");
                         Thread.Sleep(1000); // 等待一秒后重试
                     }
+                }
+            }
+        }
+
+        static void ServeCommandLoop(TextReader reader, TextWriter writer)
+        {
+            while (running)
+            {
+                try
+                {
+                    string commandJson = reader.ReadLine();
+                    if (commandJson == null)
+                    {
+                        break;
+                    }
+                    if (string.IsNullOrWhiteSpace(commandJson))
+                    {
+                        continue;
+                    }
+
+                    var command = JsonConvert.DeserializeObject<Command>(commandJson) ?? new Command();
+                    var response = ProcessCommand(command);
+
+                    string responseJson = JsonConvert.SerializeObject(response);
+                    writer.WriteLine(responseJson);
+                    writer.Flush();
+                    TrimWorkingSetIfIdle();
+
+                    if (string.Equals(command.Type, "Exit", StringComparison.Ordinal))
+                    {
+                        running = false;
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var errorResponse = new Response
+                    {
+                        Success = false,
+                        Error = ex.Message
+                    };
+                    string errorJson = JsonConvert.SerializeObject(errorResponse);
+                    writer.WriteLine(errorJson);
+                    writer.Flush();
+                    break;
                 }
             }
         }
