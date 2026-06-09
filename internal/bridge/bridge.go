@@ -11,12 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/TIANLI0/THRM/internal/appmeta"
 	"github.com/TIANLI0/THRM/internal/types"
-	"golang.org/x/sys/windows"
 )
 
 type Manager struct {
@@ -108,7 +106,6 @@ const (
 	bridgeExitTimeout           = 2 * time.Second
 	bridgeProcessExitWait       = 8 * time.Second
 	bridgeStartupTimeout        = 5 * time.Second
-	windowsStillActive          = 259
 
 	BridgeStateNotStarted = "not_started"
 	BridgeStateStarting   = "starting"
@@ -166,43 +163,43 @@ func (m *Manager) startStdio() error {
 	exeDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
 		m.setState(BridgeStateFailed, err)
-		return fmt.Errorf("鑾峰彇绋嬪簭鐩綍澶辫触: %v", err)
+		return fmt.Errorf("获取程序目录失败: %v", err)
 	}
 
 	possiblePaths := appmeta.BridgeExecutableCandidates(exeDir)
 	bridgePath := appmeta.FirstExistingPath(possiblePaths)
 	if bridgePath == "" {
-		err := fmt.Errorf("%s 涓嶅瓨鍦紝宸插皾璇曚互涓嬭矾寰? %v", appmeta.BridgeExecutableName, possiblePaths)
+		err := fmt.Errorf("%s 不存在，已尝试以下路径: %v", appmeta.BridgeExecutableName, possiblePaths)
 		m.setState(BridgeStateFailed, err)
 		return err
 	}
 
-	m.logger.Info("鎵惧埌妗ยู帴绋嬪簭: %s", bridgePath)
+	m.logger.Info("找到桥接程序: %s", bridgePath)
 
 	cmd := exec.Command(bridgePath)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	configureCmdSysProcAttr(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		m.setState(BridgeStateFailed, err)
-		return fmt.Errorf("鍒涘缓 stdin 绠￠亾澶辫触: %v", err)
+		return fmt.Errorf("创建 stdin 管道失败: %v", err)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		m.setState(BridgeStateFailed, err)
-		return fmt.Errorf("鍒涘缓 stdout 绠￠亾澶辫触: %v", err)
+		return fmt.Errorf("创建 stdout 管道失败: %v", err)
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		m.setState(BridgeStateFailed, err)
-		return fmt.Errorf("鍒涘缓 stderr 绠￠亾澶辫触: %v", err)
+		return fmt.Errorf("创建 stderr 管道失败: %v", err)
 	}
 
 	if err := cmd.Start(); err != nil {
 		m.setState(BridgeStateFailed, err)
-		return fmt.Errorf("鍚姩妗ยู帴绋嬪簭澶辫触: %v", err)
+		return fmt.Errorf("启动桥接程序失败: %v", err)
 	}
 
 	go func() {
@@ -210,11 +207,11 @@ func (m *Manager) startStdio() error {
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line != "" {
-				m.logger.Error("妗ยู帴绋嬪簭 stderr: %s", line)
+				m.logger.Error("桥接程序 stderr: %s", line)
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			m.logger.Debug("璇诲彇妗ยู帴绋嬪簭 stderr 澶辫触: %v", err)
+			m.logger.Debug("读取桥接程序 stderr 失败: %v", err)
 		}
 	}()
 
@@ -234,7 +231,7 @@ func (m *Manager) startStdio() error {
 	m.transport = "stdio"
 	m.ownsCmd = true
 	m.setState(BridgeStateRunning, nil)
-	m.logger.Info("妗ยู帴绋嬪簭鍚姩鎴愬姛锛岄€氫俊鏂瑰紡: stdio")
+	m.logger.Info("桥接程序启动成功，通信方式: stdio")
 	return nil
 }
 
@@ -361,25 +358,6 @@ func (m *Manager) releaseOwnedProcessUnsafe() {
 	}
 	m.cmd = nil
 	m.ownsCmd = false
-}
-
-func isProcessRunning(cmd *exec.Cmd) bool {
-	if cmd == nil || cmd.Process == nil {
-		return false
-	}
-
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(cmd.Process.Pid))
-	if err != nil {
-		return false
-	}
-	defer windows.CloseHandle(handle)
-
-	var exitCode uint32
-	if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
-		return false
-	}
-
-	return exitCode == windowsStillActive
 }
 
 func (m *Manager) Stop() {

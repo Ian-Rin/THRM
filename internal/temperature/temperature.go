@@ -4,11 +4,9 @@ package temperature
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/TIANLI0/THRM/internal/bridge"
@@ -53,33 +51,36 @@ func (r *Reader) Read(selection types.TemperatureSelection) types.TemperatureDat
 		ControlSource: selection.TempSource,
 	}
 
-	// 优先使用桥接程序读取温度
-	bridgeTemp := r.bridgeManager.GetTemperature(selection)
-	copyBridgeTemperatureMetadata(&temp, bridgeTemp, selection)
-	if bridgeTemp.Success {
-		if bridgeTemp.CpuTemp == 0 && bridgeTemp.GpuTemp == 0 {
-			temp.BridgeOk = false
-			temp.BridgeMsg = "桥接程序返回空温度（CPU/GPU 均为 0），已尝试备用读取；可重新初始化温度监控或检查 PawnIO/其它硬件监控工具。"
-			r.logger.Warn("桥接程序返回空温度数据，使用备用方法")
+	if r.bridgeManager != nil && r.bridgeManager.IsSupported() {
+		bridgeTemp := r.bridgeManager.GetTemperature(selection)
+		copyBridgeTemperatureMetadata(&temp, bridgeTemp, selection)
+		if bridgeTemp.Success {
+			if bridgeTemp.CpuTemp == 0 && bridgeTemp.GpuTemp == 0 {
+				temp.BridgeOk = false
+				temp.BridgeMsg = "桥接程序返回空温度（CPU/GPU 均为 0），已尝试备用读取；可重新初始化温度监控或检查 PawnIO/其它硬件监控工具。"
+				r.logger.Warn("桥接程序返回空温度数据，使用备用方法")
 
-			temp.CPUTemp = r.readCPUTemperature()
-			temp.GPUTemp = r.readGPUTemperature()
-			temp.MaxTemp = max(temp.CPUTemp, temp.GPUTemp)
-			temp.ControlTemp = resolveControlTemp(temp.CPUTemp, temp.GPUTemp, selection.TempSource)
+				temp.CPUTemp = r.readCPUTemperature()
+				temp.GPUTemp = r.readGPUTemperature()
+				temp.MaxTemp = max(temp.CPUTemp, temp.GPUTemp)
+				temp.ControlTemp = resolveControlTemp(temp.CPUTemp, temp.GPUTemp, selection.TempSource)
+				return temp
+			}
+
+			temp.BridgeOk = true
+			temp.BridgeMsg = ""
 			return temp
 		}
 
-		temp.BridgeOk = true
-		temp.BridgeMsg = ""
-		return temp
-	}
-
-	// 如果桥接程序失败，使用备用方法
-	r.logger.Warn("桥接程序读取温度失败: %s, 使用备用方法", bridgeTemp.Error)
-	temp.BridgeOk = false
-	temp.BridgeMsg = bridgeTemp.Error
-	if strings.TrimSpace(temp.BridgeMsg) == "" {
-		temp.BridgeMsg = "CPU/GPU 温度读取失败，可重新初始化温度监控；若 CPU 仍为空，请安装/更新 PawnIO 或关闭其它硬件监控工具。"
+		r.logger.Warn("桥接程序读取温度失败: %s, 使用备用方法", bridgeTemp.Error)
+		temp.BridgeOk = false
+		temp.BridgeMsg = bridgeTemp.Error
+		if strings.TrimSpace(temp.BridgeMsg) == "" {
+			temp.BridgeMsg = "CPU/GPU 温度读取失败，可重新初始化温度监控；若 CPU 仍为空，请安装/更新 PawnIO 或关闭其它硬件监控工具。"
+		}
+	} else if r.bridgeManager != nil {
+		temp.BridgeOk = false
+		temp.BridgeMsg = "当前平台不支持桥接程序，已使用内置温度读取。"
 	}
 
 	// 读取CPU温度
@@ -150,8 +151,7 @@ func (r *Reader) readCPUTemperature() int {
 		}
 	}
 
-	// 如果传感器方式失败，尝试通过WMI (Windows)
-	return r.readWindowsCPUTemp()
+	return r.readPlatformCPUTemp()
 }
 
 // readGPUTemperature 读取GPU温度
@@ -254,28 +254,6 @@ func (r *Reader) readNvidiaGPUTemp() int {
 	}
 
 	return 0
-}
-
-// execCommandHiddenWithTimeout 执行命令并隐藏窗口，避免备用读取无限阻塞监控循环。
-func execCommandHiddenWithTimeout(timeout time.Duration, name string, args ...string) ([]byte, error) {
-	ctx := context.Background()
-	cancel := func() {}
-	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-	}
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, name, args...)
-
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow: true,
-	}
-
-	output, err := cmd.Output()
-	if timeout > 0 && ctx.Err() != nil {
-		return output, ctx.Err()
-	}
-	return output, err
 }
 
 // CalculateTargetRPM 根据温度计算目标转速

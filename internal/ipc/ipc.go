@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Microsoft/go-winio"
 	"github.com/TIANLI0/THRM/internal/appmeta"
 	"github.com/TIANLI0/THRM/internal/types"
 )
@@ -189,19 +188,14 @@ func NewServer(handler RequestHandler, logger types.Logger) *Server {
 
 // Start 启动服务器
 func (s *Server) Start() error {
-	// 创建命名管道监听器
-	cfg := &winio.PipeConfig{
-		SecurityDescriptor: "D:P(A;;GA;;;WD)", // 允许所有用户访问
-	}
-
-	listener, err := winio.ListenPipe(PipePath, cfg)
+	listener, addr, err := listenIPC()
 	if err != nil {
-		return fmt.Errorf("创建命名管道失败: %v", err)
+		return err
 	}
 
 	s.listener = listener
 	s.running = true
-	s.logInfo("IPC 服务器已启动: %s", PipePath)
+	s.logInfo("IPC 服务器已启动: %s", addr)
 
 	// 接受连接
 	go s.acceptConnections()
@@ -469,8 +463,8 @@ func (c *Client) Connect() error {
 	var conn net.Conn
 	var err error
 	for _, pipeName := range appmeta.IPCPipeCandidates() {
-		pipePath := `\\.\pipe\` + pipeName
-		conn, err = winio.DialPipe(pipePath, &timeout)
+		endpoint := ipcEndpointFromName(pipeName)
+		conn, err = dialIPC(endpoint, timeout)
 		if err == nil {
 			break
 		}
@@ -648,8 +642,8 @@ func (c *Client) logDebug(format string, v ...any) {
 func CheckCoreServiceRunning() bool {
 	timeout := 1 * time.Second
 	for _, pipeName := range appmeta.IPCPipeCandidates() {
-		pipePath := `\\.\pipe\` + pipeName
-		conn, err := winio.DialPipe(pipePath, &timeout)
+		endpoint := ipcEndpointFromName(pipeName)
+		conn, err := dialIPC(endpoint, timeout)
 		if err == nil {
 			conn.Close()
 			return true
