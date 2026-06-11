@@ -258,6 +258,21 @@ textarea,
   height: 0;
 }
 
+.app-shell--hide-scrollbar,
+.app-shell--hide-scrollbar * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.app-shell--hide-scrollbar *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.app-shell--hide-scrollbar .app-overlay-scrollbar {
+  display: none;
+}
+
 .overlay-scroll-shell {
   position: relative;
   height: 100%;
