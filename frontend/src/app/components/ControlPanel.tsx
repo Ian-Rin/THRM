@@ -1028,12 +1028,8 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
   return (
     <>
       <div className="space-y-4">
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <Settings className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-base font-semibold text-foreground">{t('controlPanel.overview.title')}</h3>
-          </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Section title={t('controlPanel.overview.title')} icon={Settings}>
+          <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-3">
             <div className="rounded-xl border border-border/70 bg-muted/30 p-4 text-center">
               <div className="text-sm text-muted-foreground">{t('controlPanel.overview.currentTemperature')}</div>
               <div className={clsx(
@@ -1055,7 +1051,7 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
               <div className="mt-1 text-xs text-muted-foreground">{isBs1 ? translateWorkMode(fanData?.workMode, t) : t('controlPanel.overview.gearValue', { gear: getManualGearLabel(fanData?.setGear) || '--' })}</div>
             </div>
           </div>
-        </section>
+        </Section>
 
         {/* ═══════════ 1. 灯光效果 ═══════════ */}
         {!isBs1 && (
@@ -1663,7 +1659,7 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
 
         {/* ═══════════ Offline tip ═══════════ */}
         {!isConnected && (
-          <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-muted/30 px-5 py-4 text-sm text-muted-foreground">
             <TriangleAlert className="h-4 w-4 shrink-0" />
             {t('controlPanel.offline.message')}
           </div>
@@ -1684,12 +1680,14 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
 
             <CollapsibleContent>
               <div className="space-y-3 border-t border-border/60 p-4">
-                <div className="flex items-center justify-between rounded-xl bg-muted/50 px-3 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <Bug className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <div className="text-sm font-medium">{t('controlPanel.debug.modeTitle')}</div>
-                      <div className="text-[11px] text-muted-foreground">{t('controlPanel.debug.modeDescription')}</div>
+                <div className="flex items-center justify-between rounded-xl border border-border/70 bg-muted/30 px-4 py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                      <Bug className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-foreground">{t('controlPanel.debug.modeTitle')}</div>
+                      <div className="text-xs text-muted-foreground">{t('controlPanel.debug.modeDescription')}</div>
                     </div>
                   </div>
                   <ToggleSwitch enabled={config.debugMode} onChange={toggleDebugMode} size="sm" color="purple" />
