@@ -2,6 +2,7 @@ package coreapp
 
 import (
 	"reflect"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -12,6 +13,13 @@ import (
 )
 
 const staleBridgeUpdateThreshold = 3
+
+// idleTemperatureMonitorInterval 是后台空闲（无 GUI 连接且未开启智能控温）时的温度采样间隔下限。
+// 此时温度读取仅用于托盘提示与历史记录，放慢采样可显著降低桥接进程的传感器扫描开销与后台 CPU 占用。
+const idleTemperatureMonitorInterval = 5 * time.Second
+
+// idleMemoryReleaseCooldown 限制 GUI 断开后归还内存的最小间隔，避免频繁开关 GUI 时反复触发 GC。
+const idleMemoryReleaseCooldown = 30 * time.Second
 
 const (
 	consecutiveBridgeFailureRestartThreshold = 2
@@ -156,6 +164,9 @@ func (a *CoreApp) startTemperatureMonitoring() {
 	timer := time.NewTimer(updateInterval)
 	defer timer.Stop()
 
+	prevHasClients := a.ipcServer != nil && a.ipcServer.HasClients()
+	var lastMemRelease time.Time
+
 	for a.monitoringTemp.Load() {
 		select {
 		case <-a.stopMonitoring:
@@ -173,6 +184,20 @@ func (a *CoreApp) startTemperatureMonitoring() {
 			cfg, cfgRevision = a.configManager.GetWithRevision()
 			a.applyTimeCurveSchedule(now)
 			updateInterval = temperatureMonitorInterval(cfg.TempUpdateRate)
+
+			// 后台空闲（无 GUI 连接且未开启智能控温）时放慢采样：此时温度读取不驱动风扇，
+			// 仅服务托盘提示与历史记录，降低采样频率可显著减少桥接传感器扫描带来的后台 CPU 占用。
+			hasClients := a.ipcServer != nil && a.ipcServer.HasClients()
+			if !hasClients && !cfg.AutoControl && idleTemperatureMonitorInterval > updateInterval {
+				updateInterval = idleTemperatureMonitorInterval
+			}
+			// GUI 断开瞬间把会话期间膨胀的堆内存归还操作系统，降低核心常驻后台时的 RSS。
+			if prevHasClients && !hasClients && now.Sub(lastMemRelease) > idleMemoryReleaseCooldown {
+				lastMemRelease = now
+				a.safeGo("release-idle-memory", func() { debug.FreeOSMemory() })
+			}
+			prevHasClients = hasClients
+
 			selection := types.TemperatureSelection{
 				TempSource: cfg.TempSource,
 				GpuDevice:  cfg.GpuDevice,
@@ -216,7 +241,7 @@ func (a *CoreApp) startTemperatureMonitoring() {
 			historyPoint, recorded := a.tempHistory.Add(temp, a.deviceManager.GetCurrentFanData())
 
 			// 广播温度更新（无 GUI 客户端时跳过差分与序列化，核心常驻后台时显著降低每秒开销）
-			if a.ipcServer != nil && a.ipcServer.HasClients() {
+			if hasClients {
 				eventTemp := compactTemperatureEventPayload(temp, previousTemp)
 				a.ipcServer.BroadcastEvent(ipc.EventTemperatureUpdate, eventTemp)
 				if recorded {
