@@ -18,6 +18,12 @@ const (
 	trayAutoStartSettleDelay = 3 * time.Second
 	// trayAutoStartSettleTimeout 等待通知区域稳定的最长时间，超时后仍会尝试注册以免永不显示。
 	trayAutoStartSettleTimeout = 25 * time.Second
+	// trayReadyRecoveryDelay is the grace period before rebuilding a systray
+	// instance that is initialized but never becomes ready.
+	trayReadyRecoveryDelay = 75 * time.Second
+	// trayRestartThrottle prevents repeated restart requests while the
+	// supervisor is already trying to recover the tray.
+	trayRestartThrottle = 45 * time.Second
 )
 
 // Manager 系统托盘管理器
@@ -45,6 +51,8 @@ type Manager struct {
 	// 监控托盘健康状态
 	lastIconRefresh  atomic.Int64
 	consecutiveFails atomic.Int32 // 连续失败计数
+	readyFalseSince  atomic.Int64
+	lastRestartTry   atomic.Int64
 
 	// 防止托盘动作重入导致偶发无响应
 	showWindowInFlight int32
@@ -214,6 +222,8 @@ func (m *Manager) runSystrayInstance() (ran time.Duration) {
 	m.menuItems = nil
 	m.curveMenuItems = make(map[string]*systray.MenuItem)
 	m.instanceMu.Unlock()
+	atomic.StoreInt32(&m.readyState, 0)
+	m.readyFalseSince.Store(time.Now().Unix())
 
 	// 等待 Windows 外壳就绪，避免 Shell_NotifyIcon(NIM_ADD) 在外壳未启动时失败。
 	if !waitForShellReady(m.done, 60*time.Second) {
@@ -252,6 +262,7 @@ func (m *Manager) runSystrayInstance() (ran time.Duration) {
 	ran = time.Since(start)
 
 	atomic.StoreInt32(&m.readyState, 0)
+	m.readyFalseSince.Store(time.Now().Unix())
 	// 通知本实例的附属 goroutine 退出。
 	close(instanceDone)
 	return ran
@@ -303,6 +314,7 @@ func (m *Manager) onTrayReady() {
 	m.startUIWorker(instanceDone)
 
 	atomic.StoreInt32(&m.readyState, 1)
+	m.readyFalseSince.Store(0)
 	m.lastIconRefresh.Store(time.Now().Unix())
 	m.consecutiveFails.Store(0)
 	m.logInfo("系统托盘初始化完成")
@@ -562,6 +574,7 @@ func (m *Manager) updateMenuStatus(instanceDone <-chan struct{}) {
 func (m *Manager) onTrayExit() {
 	m.logDebug("托盘退出回调被触发")
 	atomic.StoreInt32(&m.readyState, 0)
+	m.readyFalseSince.Store(time.Now().Unix())
 }
 
 // startIconHealthMonitor 启动托盘图标健康监控
@@ -730,6 +743,12 @@ func (m *Manager) CheckHealth() {
 		return
 	}
 
+	if atomic.LoadInt32(&m.readyState) == 0 {
+		m.recoverNotReadyTray()
+		return
+	}
+	m.readyFalseSince.Store(0)
+
 	// 检查图标是否长时间未刷新
 	lastRefresh := m.lastIconRefresh.Load()
 	if lastRefresh > 0 && time.Now().Unix()-lastRefresh > 90 {
@@ -742,6 +761,59 @@ func (m *Manager) CheckHealth() {
 		m.logError("检测到托盘连续失败，尝试刷新图标")
 		m.refreshTrayIcon()
 	}
+}
+
+func (m *Manager) recoverNotReadyTray() {
+	now := time.Now()
+	nowUnix := now.Unix()
+	firstUnix := m.readyFalseSince.Load()
+	if firstUnix == 0 {
+		if m.readyFalseSince.CompareAndSwap(0, nowUnix) {
+			firstUnix = nowUnix
+		} else {
+			firstUnix = m.readyFalseSince.Load()
+		}
+	}
+
+	notReadyFor := now.Sub(time.Unix(firstUnix, 0))
+	if notReadyFor < trayReadyRecoveryDelay {
+		m.logDebug("系统托盘尚未就绪，已等待 %v，继续等待", notReadyFor.Round(time.Second))
+		return
+	}
+
+	if !isShellReady() {
+		m.logInfo("系统托盘尚未就绪，但任务栏通知区域未稳定，暂缓重建")
+		return
+	}
+
+	m.requestTrayRestart(fmt.Sprintf("ready=false 持续 %v", notReadyFor.Round(time.Second)))
+}
+
+func (m *Manager) requestTrayRestart(reason string) {
+	nowUnix := time.Now().Unix()
+	throttleSeconds := int64(trayRestartThrottle / time.Second)
+	for {
+		lastTry := m.lastRestartTry.Load()
+		if lastTry > 0 && nowUnix-lastTry < throttleSeconds {
+			m.logDebug("系统托盘重建请求被节流: %s", reason)
+			return
+		}
+		if m.lastRestartTry.CompareAndSwap(lastTry, nowUnix) {
+			break
+		}
+	}
+
+	m.logError("系统托盘状态异常，准备重建: %s", reason)
+	atomic.StoreInt32(&m.readyState, 0)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				m.logDebug("请求重建系统托盘时发生错误（可忽略）: %v", r)
+			}
+		}()
+		systray.Quit()
+	}()
 }
 
 // 日志辅助方法
