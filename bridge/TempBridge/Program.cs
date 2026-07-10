@@ -6,6 +6,7 @@ using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
+using System.Text;
 using System.Threading;
 using Newtonsoft.Json;
 using LibreHardwareMonitor.Hardware;
@@ -182,6 +183,8 @@ namespace THRM.TempBridge
 
         static void Main(string[] args)
         {
+            ConfigureConsoleEncoding();
+
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             {
                 LogUnhandledException("AppDomain", e.ExceptionObject as Exception);
@@ -250,6 +253,25 @@ namespace THRM.TempBridge
                     singleInstanceMutex.Dispose();
                     singleInstanceMutex = null;
                 }
+            }
+        }
+
+        static void ConfigureConsoleEncoding()
+        {
+            try
+            {
+                var utf8NoBom = new UTF8Encoding(false);
+                if (Console.IsOutputRedirected)
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8NoBom) { AutoFlush = true });
+                }
+                if (Console.IsErrorRedirected)
+                {
+                    Console.SetError(new StreamWriter(Console.OpenStandardError(), utf8NoBom) { AutoFlush = true });
+                }
+            }
+            catch
+            {
             }
         }
 

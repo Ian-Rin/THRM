@@ -507,13 +507,13 @@ export namespace types {
 		    return a;
 		}
 	}
-	export class TemperatureSensor {
+	export class PowerSensor {
 	    key: string;
 	    name: string;
 	    value: number;
 	
 	    static createFrom(source: any = {}) {
-	        return new TemperatureSensor(source);
+	        return new PowerSensor(source);
 	    }
 	
 	    constructor(source: any = {}) {
@@ -523,15 +523,15 @@ export namespace types {
 	        this.value = source["value"];
 	    }
 	}
-	export class PowerSensor {
+	export class TemperatureSensor {
 	    key: string;
 	    name: string;
 	    value: number;
-
+	
 	    static createFrom(source: any = {}) {
-	        return new PowerSensor(source);
+	        return new TemperatureSensor(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key = source["key"];
@@ -851,6 +851,7 @@ export namespace types {
 	
 	
 	
+	
 	export class TemperatureData {
 	    cpuTemp: number;
 	    gpuTemp: number;
@@ -977,3 +978,4 @@ export namespace types {
 	
 
 }
+
