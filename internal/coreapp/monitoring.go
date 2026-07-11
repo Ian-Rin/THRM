@@ -390,7 +390,7 @@ monitorLoop:
 				// 功耗突增，可在实测温度越过曲线点前提前升速。稳态学习仍使用
 				// learningControlTemp，避免将预测值写入长期学习偏移。
 				learningControlTemp := controlTemp
-				if smartCfg.Learning {
+				if smartCfg.PredictiveBoost {
 					prediction := thermalPredictor.Observe(temp, now, cfg.TempSource, smartCfg.TrendGain)
 					if prediction.ControlTemp > controlTemp {
 						controlTemp = prediction.ControlTemp

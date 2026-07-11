@@ -152,6 +152,7 @@ func applyMissingSmartControlDefaults(cfg *types.AppConfig, rawConfig map[string
 	if !ok {
 		cfg.SmartControl.FilterTransientSpike = defaults.FilterTransientSpike
 		cfg.SmartControl.LearningBias = defaults.LearningBias
+		cfg.SmartControl.PredictiveBoost = defaults.PredictiveBoost
 		return
 	}
 
@@ -165,6 +166,10 @@ func applyMissingSmartControlDefaults(cfg *types.AppConfig, rawConfig map[string
 	}
 	if _, ok := smartControlConfig["learningBias"]; !ok {
 		cfg.SmartControl.LearningBias = defaults.LearningBias
+	}
+	// 旧配置没有该字段时，默认开启功耗预测前馈以保持既有控温行为。
+	if _, ok := smartControlConfig["predictiveBoost"]; !ok {
+		cfg.SmartControl.PredictiveBoost = defaults.PredictiveBoost
 	}
 }
 

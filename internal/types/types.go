@@ -431,6 +431,7 @@ type NoiseProfilePoint struct {
 type SmartControlConfig struct {
 	Enabled                 bool              `json:"enabled"`                         // 智能耦合控制开关
 	Learning                bool              `json:"learning"`                        // 学习开关
+	PredictiveBoost         bool              `json:"predictiveBoost"`                 // 功耗预测前馈开关(独立于学习)
 	LearningBias            string            `json:"learningBias"`                    // 学习倾向: balanced/cooling/quiet
 	FilterTransientSpike    bool              `json:"filterTransientSpike"`            // 是否过滤孤立温度尖峰
 	TargetTemp              int               `json:"targetTemp"`                      // 目标温度(°C)
@@ -527,6 +528,7 @@ func GetDefaultSmartControlConfig(curve []FanCurvePoint) SmartControlConfig {
 	return SmartControlConfig{
 		Enabled:              true,
 		Learning:             true,
+		PredictiveBoost:      true,
 		LearningBias:         LearningBiasBalanced,
 		FilterTransientSpike: true,
 		TargetTemp:           68,
