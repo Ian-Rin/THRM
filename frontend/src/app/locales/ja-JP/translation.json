@@ -291,6 +291,19 @@
         "alipay": "Alipay",
         "wechat": "WeChat"
       }
+    },
+    "credits": {
+      "title": "謝辞",
+      "description": "コードを貢献してくださった皆さま、そしてプロジェクトを支援してくださったスポンサーに感謝します。",
+      "loading": "謝辞リストを読み込み中…",
+      "error": "謝辞リストの読み込みに失敗しました。しばらくしてからお試しください。",
+      "contributorsTitle": "コントリビューター",
+      "contributorsEmpty": "コントリビューターの記録はまだありません。",
+      "sponsorsTitle": "スポンサー",
+      "sponsorsEmpty": "スポンサーの記録はまだありません。",
+      "authorBadge": "作者",
+      "anonymous": "匿名",
+      "thanks": "いつもご支援ありがとうございます。皆さまのおかげで THRM はより良くなります ❤"
     }
   },
   "fanCurve": {

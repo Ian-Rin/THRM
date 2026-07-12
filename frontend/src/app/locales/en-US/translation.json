@@ -292,6 +292,19 @@
         "alipay": "Alipay",
         "wechat": "WeChat"
       }
+    },
+    "credits": {
+      "title": "Acknowledgements",
+      "description": "Thanks to everyone who contributed code and to the sponsors who supported the project.",
+      "loading": "Loading the acknowledgements list…",
+      "error": "Failed to load the acknowledgements list. Please check back later.",
+      "contributorsTitle": "Contributors",
+      "contributorsEmpty": "No contributor records yet.",
+      "sponsorsTitle": "Sponsors",
+      "sponsorsEmpty": "No sponsor records yet.",
+      "authorBadge": "Author",
+      "anonymous": "Anonymous",
+      "thanks": "Thank you for every bit of support — THRM is better because of you ❤"
     }
   },
   "fanCurve": {

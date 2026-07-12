@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
-import { Download, Heart, Mail, MessageCircleMore, RefreshCw, Rocket, Sparkles } from 'lucide-react';
+import { Download, Heart, Mail, MessageCircleMore, RefreshCw, Rocket, Sparkles, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { BRAND } from '../lib/brand';
@@ -39,6 +39,27 @@ function findInstallerAsset(assets: GithubReleaseAsset[] | undefined): string {
 }
 
 type UpdateStage = 'idle' | 'downloading' | 'installing' | 'done' | 'error';
+
+type CreditContributor = {
+  login?: string;
+  name?: string;
+  url?: string;
+  avatar?: string;
+  role?: string;
+};
+
+type CreditSponsor = {
+  name?: string;
+  url?: string;
+  avatar?: string;
+  note?: string;
+  amount?: number;
+};
+
+type CreditsData = {
+  contributors: CreditContributor[];
+  sponsors: CreditSponsor[];
+};
 
 function openUrl(url: string) {
   try {
@@ -108,6 +129,9 @@ export default function AboutPanel() {
   const [updateStage, setUpdateStage] = useState<UpdateStage>('idle');
   const [updatePercent, setUpdatePercent] = useState(0);
   const [updateError, setUpdateError] = useState('');
+  const [credits, setCredits] = useState<CreditsData | null>(null);
+  const [creditsLoading, setCreditsLoading] = useState(false);
+  const [creditsError, setCreditsError] = useState(false);
   const [isSponsorHovered, setIsSponsorHovered] = useState(false);
   const [isSponsorPinned, setIsSponsorPinned] = useState(false);
   const [sponsorPopupStyle, setSponsorPopupStyle] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
@@ -198,6 +222,33 @@ export default function AboutPanel() {
   useEffect(() => {
     void checkLatestRelease(releaseChannel);
   }, [checkLatestRelease, releaseChannel]);
+
+  useEffect(() => {
+    let disposed = false;
+    setCreditsLoading(true);
+    setCreditsError(false);
+    fetch(BRAND.creditsUrl, { cache: 'no-cache' })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((data: Partial<CreditsData>) => {
+        if (disposed) return;
+        setCredits({
+          contributors: Array.isArray(data?.contributors) ? data.contributors : [],
+          sponsors: Array.isArray(data?.sponsors) ? data.sponsors : [],
+        });
+      })
+      .catch(() => {
+        if (!disposed) setCreditsError(true);
+      })
+      .finally(() => {
+        if (!disposed) setCreditsLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     const dispose = apiService.onUpdateDownloadProgress((payload) => {
@@ -301,6 +352,13 @@ export default function AboutPanel() {
   const hasNewVersion = useMemo(() => {
     return !!appVersion && !!latestReleaseTag && !isLatestVersion(appVersion, latestReleaseTag);
   }, [appVersion, latestReleaseTag]);
+
+  const sortedSponsors = useMemo(() => {
+    const list = credits?.sponsors ?? [];
+    return [...list].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0));
+  }, [credits]);
+
+  const contributors = credits?.contributors ?? [];
 
   const isSponsorOpen = isSponsorHovered || isSponsorPinned;
 
@@ -623,6 +681,160 @@ export default function AboutPanel() {
               </div>
             </div>
           )}
+
+          <div className={`${ABOUT_CARD_CLASS} lg:col-span-2`}>
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Users className="h-4 w-4 text-primary" />
+              <span>{t('aboutPanel.credits.title')}</span>
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+              {t('aboutPanel.credits.description')}
+            </p>
+
+            {creditsLoading && !credits ? (
+              <div className="mt-4 flex items-center justify-center gap-2 rounded-2xl border border-border/70 bg-background/70 px-4 py-8 text-xs text-muted-foreground">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                {t('aboutPanel.credits.loading')}
+              </div>
+            ) : creditsError && !credits ? (
+              <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-8 text-center text-xs text-amber-600 dark:text-amber-300">
+                {t('aboutPanel.credits.error')}
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <Sparkles className="h-3.5 w-3.5 text-primary" />
+                      {t('aboutPanel.credits.contributorsTitle')}
+                    </div>
+                    {contributors.length > 0 && (
+                      <span className="tabular-nums text-xs text-muted-foreground">{contributors.length}</span>
+                    )}
+                  </div>
+                  {contributors.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {contributors.map((person, index) => {
+                        const displayName = person.name || person.login || t('aboutPanel.credits.anonymous');
+                        const key = person.login || person.url || `${displayName}-${index}`;
+                        const inner = (
+                          <>
+                            {person.avatar ? (
+                              <img
+                                src={person.avatar}
+                                alt={displayName}
+                                className="h-7 w-7 rounded-full border border-border object-cover"
+                                referrerPolicy="no-referrer"
+                                draggable={false}
+                              />
+                            ) : (
+                              <span className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-semibold uppercase text-muted-foreground">
+                                {displayName.slice(0, 1)}
+                              </span>
+                            )}
+                            <span className="max-w-[9rem] truncate">{displayName}</span>
+                            {person.role === 'author' && (
+                              <Badge variant="info">{t('aboutPanel.credits.authorBadge')}</Badge>
+                            )}
+                          </>
+                        );
+                        return person.url ? (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => openUrl(person.url as string)}
+                            className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-background py-1 pl-1 pr-3 text-xs font-medium text-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5 hover:shadow"
+                          >
+                            {inner}
+                          </button>
+                        ) : (
+                          <span
+                            key={key}
+                            className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background py-1 pl-1 pr-3 text-xs font-medium text-foreground shadow-sm"
+                          >
+                            {inner}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-muted-foreground">{t('aboutPanel.credits.contributorsEmpty')}</div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-rose-500/20 bg-gradient-to-b from-rose-500/[0.05] to-transparent p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <Heart className="h-3.5 w-3.5 text-rose-500" />
+                      {t('aboutPanel.credits.sponsorsTitle')}
+                    </div>
+                    {sortedSponsors.length > 0 && (
+                      <span className="tabular-nums text-xs text-muted-foreground">{sortedSponsors.length}</span>
+                    )}
+                  </div>
+                  {sortedSponsors.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {sortedSponsors.map((sponsor, index) => {
+                        const displayName = sponsor.name || t('aboutPanel.credits.anonymous');
+                        const key = sponsor.url || `${displayName}-${index}`;
+                        const title = sponsor.note ? `${displayName}：${sponsor.note}` : displayName;
+                        const inner = (
+                          <>
+                            {sponsor.avatar ? (
+                              <img
+                                src={sponsor.avatar}
+                                alt={displayName}
+                                className="h-7 w-7 rounded-full border border-border object-cover"
+                                referrerPolicy="no-referrer"
+                                draggable={false}
+                              />
+                            ) : (
+                              <span className="flex h-7 w-7 items-center justify-center rounded-full border border-rose-500/30 bg-rose-500/10 text-rose-500">
+                                <Heart className="h-3.5 w-3.5" />
+                              </span>
+                            )}
+                            <span className="max-w-[9rem] truncate">{displayName}</span>
+                            {typeof sponsor.amount === 'number' && sponsor.amount > 0 && (
+                              <span className="rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-rose-500">
+                                ¥{sponsor.amount.toFixed(2)}
+                              </span>
+                            )}
+                            {sponsor.note && (
+                              <span className="max-w-[11rem] truncate text-muted-foreground">“{sponsor.note}”</span>
+                            )}
+                          </>
+                        );
+                        return sponsor.url ? (
+                          <button
+                            key={key}
+                            type="button"
+                            title={title}
+                            onClick={() => openUrl(sponsor.url as string)}
+                            className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-background py-1 pl-1 pr-3 text-xs font-medium text-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-rose-400/50 hover:bg-rose-500/5 hover:shadow"
+                          >
+                            {inner}
+                          </button>
+                        ) : (
+                          <span
+                            key={key}
+                            title={title}
+                            className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background py-1 pl-1 pr-3 text-xs font-medium text-foreground shadow-sm"
+                          >
+                            {inner}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-muted-foreground">{t('aboutPanel.credits.sponsorsEmpty')}</div>
+                  )}
+                  <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
+                    {t('aboutPanel.credits.thanks')}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className={`${ABOUT_CARD_CLASS} lg:col-span-2`}>
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">

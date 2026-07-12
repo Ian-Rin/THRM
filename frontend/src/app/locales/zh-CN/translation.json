@@ -292,6 +292,19 @@
         "alipay": "支付宝",
         "wechat": "微信"
       }
+    },
+    "credits": {
+      "title": "鸣谢",
+      "description": "感谢每一位贡献代码的开发者，以及支持本项目的赞助者。",
+      "loading": "正在加载鸣谢清单…",
+      "error": "鸣谢清单加载失败，请稍后再试。",
+      "contributorsTitle": "代码贡献者",
+      "contributorsEmpty": "暂无贡献者记录。",
+      "sponsorsTitle": "赞助者",
+      "sponsorsEmpty": "暂无赞助者记录。",
+      "authorBadge": "作者",
+      "anonymous": "匿名",
+      "thanks": "感谢每一份支持，THRM 因你们而更好 ❤"
     }
   },
   "fanCurve": {
