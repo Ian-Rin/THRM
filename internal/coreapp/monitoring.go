@@ -1,6 +1,7 @@
 package coreapp
 
 import (
+	"fmt"
 	"reflect"
 	"runtime/debug"
 	"strings"
@@ -217,6 +218,8 @@ func (a *CoreApp) startTemperatureMonitoring() {
 	lastBridgeUpdateTime := initialTemp.UpdateTime
 	staleBridgeUpdateCount := 0
 	bridgeFailureCount := 0
+	invalidControlTempCount := 0
+	safeFallbackActive := false
 	lastBridgeRestart := time.Time{}
 	var smartCfg types.SmartControlConfig
 	smartCfgRevision := cfgRevision - 1
@@ -282,6 +285,18 @@ monitorLoop:
 				GpuSensor:  cfg.GpuSensor,
 			}
 			temp := a.tempReader.Read(selection)
+			if temp.ControlTemp <= 0 {
+				invalidControlTempCount++
+			} else {
+				if safeFallbackActive {
+					a.logInfo("Temperature source recovered; resuming normal automatic control")
+					if a.ipcServer != nil {
+						a.ipcServer.BroadcastEvent(ipc.EventDeviceError, "Temperature source recovered; normal fan control resumed")
+					}
+				}
+				invalidControlTempCount = 0
+				safeFallbackActive = false
+			}
 			if temp.BridgeOk {
 				bridgeFailureCount = 0
 				staleBridge := false
@@ -339,6 +354,22 @@ monitorLoop:
 			}
 
 			controlReady := a.isDeviceControlReady()
+			if cfg.AutoControl && controlReady && invalidControlTempCount >= 3 && !safeFallbackActive {
+				_, safeRPM := smartcontrol.GetCurveRPMBounds(cfg.FanCurve)
+				if safeRPM <= 0 {
+					safeRPM = 3000
+				}
+				ready, written := a.setAutomaticFanSpeed(safeRPM)
+				if ready && written {
+					safeFallbackActive = true
+					lastTargetRPM = safeRPM
+					message := fmt.Sprintf("Temperature readings are unavailable; fan switched to safe fallback at %d RPM", safeRPM)
+					a.logError("%s", message)
+					if a.ipcServer != nil {
+						a.ipcServer.BroadcastEvent(ipc.EventDeviceError, message)
+					}
+				}
+			}
 			if cfg.AutoControl && temp.ControlTemp > 0 && controlReady {
 				// 采样窗口变化时重置 EMA，避免阶跃。
 				newSampleCount := max(cfg.TempSampleCount, 1)

@@ -175,8 +175,14 @@ func averageSelectedCpuTemp(sensors []types.TemperatureSensor, keys []string) (i
 func resolveControlTemp(cpuTemp, gpuTemp int, source string) int {
 	switch types.NormalizeTempSource(source) {
 	case types.TempSourceCPU:
+		if cpuTemp <= 0 && gpuTemp > 0 {
+			return gpuTemp
+		}
 		return cpuTemp
 	case types.TempSourceGPU:
+		if gpuTemp <= 0 && cpuTemp > 0 {
+			return cpuTemp
+		}
 		return gpuTemp
 	default:
 		return max(cpuTemp, gpuTemp)
