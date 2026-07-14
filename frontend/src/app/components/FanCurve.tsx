@@ -434,7 +434,7 @@ const ConfigTooltipLabel = memo(function ConfigTooltipLabel({ label, description
             <Info className="h-3.5 w-3.5" />
           </button>
         </TooltipTrigger>
-        <TooltipContent className="max-w-[260px] leading-relaxed">{description}</TooltipContent>
+        <TooltipContent className="max-w-65 leading-relaxed">{description}</TooltipContent>
       </Tooltip>
     </span>
   );
@@ -804,6 +804,26 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
     const last = detailHistoryPoints[detailHistoryPoints.length - 1]?.timestamp ?? Number.MAX_SAFE_INTEGER;
     return timelineEvents.filter((event) => event.timestamp >= first && event.timestamp <= last).slice(-12);
   }, [detailHistoryPoints, timelineEvents]);
+  // 为聚集在一起的时间线标记分配垂直行号，避免各条参考线的文字标签叠在同一处；
+  // 同时按标记在时间轴的位置决定文字朝向，防止靠右的标记文字溢出图表。
+  const timelineEventLayout = useMemo(() => {
+    const first = detailHistoryPoints[0]?.timestamp ?? 0;
+    const last = detailHistoryPoints[detailHistoryPoints.length - 1]?.timestamp ?? first;
+    const range = Math.max(1, last - first);
+    const minGap = range * 0.07; // 时间间隔小于可见跨度 7% 的标记视为“重叠”，需错行显示
+    const maxRows = 4;
+    const rowLastTs: number[] = [];
+    return visibleTimelineEvents.map((event) => {
+      let row = rowLastTs.findIndex((ts) => event.timestamp - ts >= minGap);
+      if (row === -1) {
+        row = rowLastTs.length < maxRows
+          ? rowLastTs.length
+          : rowLastTs.reduce((best, ts, i) => (ts < rowLastTs[best] ? i : best), 0);
+      }
+      rowLastTs[row] = event.timestamp;
+      return { event, row, anchorEnd: (event.timestamp - first) / range > 0.55 };
+    });
+  }, [detailHistoryPoints, visibleTimelineEvents]);
 
   const historySeriesMeta = useMemo(() => ([
     { key: 'cpu' as const, label: t('fanCurve.history.series.cpu'), color: '#2f6df6' },
@@ -2248,16 +2268,35 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
                         <RechartsTooltip
                           content={<HistoryTrendTooltip locale={locale} meta={historySeriesMeta} visibility={historySeriesVisibility} />}
                         />
-                        {visibleTimelineEvents.map((event, index) => (
-                          <ReferenceLine
-                            key={`${event.timestamp}-${event.type}-${index}`}
-                            x={event.timestamp}
-                            yAxisId="temp"
-                            stroke={event.type === 'disconnect' ? '#ef4444' : event.type === 'resume' ? '#8b5cf6' : '#0ea5e9'}
-                            strokeDasharray="4 3"
-                            label={{ value: event.label, position: 'insideTopRight', fontSize: 10 }}
-                          />
-                        ))}
+                        {timelineEventLayout.map(({ event, row, anchorEnd }, index) => {
+                          const markerColor = event.type === 'disconnect' ? '#ef4444' : event.type === 'resume' ? '#8b5cf6' : '#0ea5e9';
+                          return (
+                            <ReferenceLine
+                              key={`${event.timestamp}-${event.type}-${index}`}
+                              x={event.timestamp}
+                              yAxisId="temp"
+                              stroke={markerColor}
+                              strokeDasharray="4 3"
+                              label={(labelProps: { viewBox?: { x?: number; y?: number } }) => {
+                                const x = labelProps.viewBox?.x ?? 0;
+                                const yTop = labelProps.viewBox?.y ?? 0;
+                                return (
+                                  <text
+                                    x={x}
+                                    y={yTop + 10 + row * 12}
+                                    dx={anchorEnd ? -5 : 5}
+                                    textAnchor={anchorEnd ? 'end' : 'start'}
+                                    fontSize={10}
+                                    fontWeight={500}
+                                    fill={markerColor}
+                                  >
+                                    {event.label}
+                                  </text>
+                                );
+                              }}
+                            />
+                          );
+                        })}
                         {historySeriesVisibility.cpu && <Line yAxisId="temp" type="monotone" dataKey="cpuTemp" stroke="#2f6df6" strokeWidth={2.3} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
                         {historySeriesVisibility.gpu && <Line yAxisId="temp" type="monotone" dataKey="gpuTemp" stroke="#f97316" strokeWidth={2.3} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
                         {historySeriesVisibility.fan && <Line yAxisId="fan" type="monotone" dataKey="fanRpm" stroke="#10b981" strokeWidth={2} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
@@ -2397,7 +2436,7 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
                       value={importCode}
                       onChange={(event) => setImportCode(event.target.value)}
                       rows={2}
-                      className="min-h-[72px] w-full resize-none rounded-lg border border-border/70 bg-background px-3 py-2 text-xs leading-relaxed"
+                      className="min-h-18 w-full resize-none rounded-lg border border-border/70 bg-background px-3 py-2 text-xs leading-relaxed"
                       placeholder={t('fanCurve.importExport.importPlaceholder')}
                     />
                     <div className="flex justify-end pt-1">

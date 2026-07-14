@@ -38,17 +38,19 @@ export default function FanCurveProfileToolbar({
       data-curve-profile-toolbar
       className={clsx('flex min-w-0 items-center gap-1.5 rounded-xl border border-border/70 bg-card/70 p-1.5 shadow-sm shadow-black/5', className)}
     >
-      <div data-curve-profile-list className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-0.5 py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div data-curve-profile-list className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-0.5 py-0.5 scrollbar-none [&::-webkit-scrollbar]:hidden">
         {profiles.map((profile) => {
           const isActive = profile.id === activeProfileId;
+          const deletable = profiles.length > 1;
           return (
-            <div key={profile.id} className="group relative flex shrink-0 hover:z-10 focus-within:z-10">
+            <div key={profile.id} className="group relative flex shrink-0">
               <button
                 type="button"
                 onClick={() => onChange(profile.id)}
                 disabled={loading}
                 className={clsx(
-                  'h-9 cursor-pointer truncate whitespace-nowrap rounded-full border px-4 text-center text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                  'h-9 cursor-pointer truncate whitespace-nowrap rounded-full border text-center text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                  deletable ? 'pl-4 pr-8' : 'px-4',
                   isActive
                     ? 'border-primary/40 bg-primary/10 text-primary'
                     : 'border-border/70 bg-background/55 text-muted-foreground hover:border-border hover:bg-muted/65 hover:text-foreground',
@@ -57,21 +59,21 @@ export default function FanCurveProfileToolbar({
               >
                 {profile.name}
               </button>
-              {profiles.length > 1 && (
+              {deletable && (
                 <button
                   type="button"
                   onClick={() => onDelete(profile.id)}
                   disabled={loading}
                   className={clsx(
-                    'absolute -right-[6.5px] -top-[1.5px] z-10 flex h-[13px] w-[13px] cursor-pointer items-center justify-center rounded-full border opacity-0 shadow-sm transition-colors group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed',
+                    'absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full transition-[color,background-color,opacity] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed',
                     isActive
-                      ? 'border-primary bg-card text-destructive'
-                      : 'border-border bg-card text-muted-foreground hover:border-primary hover:text-destructive',
+                      ? 'text-primary/70 opacity-100 hover:bg-primary/15 hover:text-destructive'
+                      : 'text-muted-foreground opacity-0 hover:bg-muted hover:text-destructive group-hover:opacity-100 group-focus-within:opacity-100',
                   )}
                   aria-label={t('fanCurve.profiles.deleteProfileLabel', { name: profile.name })}
                   title={t('fanCurve.profiles.deleteProfileLabel', { name: profile.name })}
                 >
-                  <X className="h-2 w-2" />
+                  <X className="h-3 w-3" />
                 </button>
               )}
             </div>

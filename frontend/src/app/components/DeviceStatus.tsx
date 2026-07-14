@@ -110,7 +110,7 @@ const SemiGauge = memo(function SemiGauge({ value, color, children }: SemiGaugeP
   const dashOffset = arc * (1 - safe);
 
   return (
-    <div className="relative w-full max-w-[15rem] min-[1800px]:max-w-[17.5rem]">
+    <div className="relative w-full max-w-60 min-[1800px]:max-w-70">
       <svg
         viewBox="0 0 200 116"
         className="block w-full"

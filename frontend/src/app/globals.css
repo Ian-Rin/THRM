@@ -158,6 +158,22 @@
   display: none !important;
 }
 
+/* 侧栏内的真实交互内容始终位于主题装饰性 ::before/::after 伪元素之上，
+   避免主题在侧栏添加的装饰（如竖排文字水印）遮挡「关于」等底部按钮。
+   此为基础层规则，任何主题无需改动即可生效。 */
+.glacier-sidebar > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 基础层默认覆盖任意主题（含内置 THRM）加在侧栏上的竖排装饰水印定位：
+   将其上移到导航区与底部按钮之间的空白带，避免压住底部的「关于」/折叠按钮。
+   用 !important 确保默认压过主题（如 THRM 的 bottom: 5.5rem），并置为不可交互。 */
+.glacier-sidebar::after {
+  bottom: 9.5rem !important;
+  pointer-events: none !important;
+}
+
 @keyframes page-card-fade {
   from {
     opacity: 0;
