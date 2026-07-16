@@ -717,6 +717,8 @@ func (a *CoreApp) connectDeviceOnce(generation uint64, manual bool) bool {
 			return false
 		}
 
+		a.persistLastDeviceTransport(a.deviceManager.GetDeviceType())
+
 		if settings != nil && a.ipcServer != nil {
 			a.ipcServer.BroadcastEvent(ipc.EventDeviceSettingsUpdate, *settings)
 		}
@@ -746,6 +748,23 @@ func (a *CoreApp) connectDeviceOnce(generation uint64, manual bool) bool {
 		a.ipcServer.BroadcastEvent(ipc.EventDeviceError, "连接失败")
 	}
 	return success
+}
+
+// persistLastDeviceTransport 将本次成功连接的传输方式写入配置，
+// 使自动重连的 BLE 扫描跳过/限频策略在进程重启后依然成立。
+func (a *CoreApp) persistLastDeviceTransport(transport string) {
+	if transport != types.DeviceTypeHID && transport != types.DeviceTypeBLE {
+		return
+	}
+	cfg := a.configManager.Get()
+	if cfg.LastDeviceTransport == transport {
+		return
+	}
+	cfg.LastDeviceTransport = transport
+	a.configManager.Set(cfg)
+	if err := a.configManager.Save(); err != nil {
+		a.logError("保存上次设备连接方式失败: %v", err)
+	}
 }
 
 // DisconnectDevice 断开设备连接

@@ -123,6 +123,8 @@ func (a *CoreApp) Start() error {
 
 	// 设置设备回调
 	a.deviceManager.SetCallbacks(a.onFanDataUpdate, a.onDeviceDisconnect)
+	// 恢复上次成功连接的传输方式，避免重启后自动重连误触发仅用于 BS1 的 BLE 扫描。
+	a.deviceManager.SeedLastTransport(cfg.LastDeviceTransport)
 
 	// 启动 IPC 服务器
 	a.logInfo("启动 IPC 服务器")

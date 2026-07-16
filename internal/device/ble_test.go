@@ -64,21 +64,25 @@ func TestBLEConnectStopsBlockingScanOnTimeout(t *testing.T) {
 
 func TestShouldSkipBLEFallback(t *testing.T) {
 	tests := []struct {
-		name       string
-		preferLast bool
-		lastType   string
-		want       bool
+		name          string
+		preferLast    bool
+		lastType      string
+		sinceLastScan time.Duration
+		want          bool
 	}{
-		{name: "automatic HID reconnect", preferLast: true, lastType: "hid", want: true},
-		{name: "manual full discovery", lastType: "hid", want: false},
-		{name: "automatic BLE reconnect", preferLast: true, lastType: "ble", want: false},
-		{name: "first automatic connection", preferLast: true, want: false},
+		{name: "automatic HID reconnect", preferLast: true, lastType: "hid", sinceLastScan: -1, want: true},
+		{name: "manual full discovery", lastType: "hid", sinceLastScan: -1, want: false},
+		{name: "automatic BLE reconnect", preferLast: true, lastType: "ble", sinceLastScan: time.Second, want: false},
+		{name: "first automatic connection scans once", preferLast: true, sinceLastScan: -1, want: false},
+		{name: "never-connected reconnect inside cooldown", preferLast: true, sinceLastScan: 30 * time.Second, want: true},
+		{name: "never-connected reconnect after cooldown", preferLast: true, sinceLastScan: idleBLEScanCooldown, want: false},
+		{name: "manual connect ignores cooldown", lastType: "", sinceLastScan: 30 * time.Second, want: false},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := shouldSkipBLEFallback(test.preferLast, test.lastType); got != test.want {
-				t.Fatalf("shouldSkipBLEFallback(%v, %q) = %v, want %v", test.preferLast, test.lastType, got, test.want)
+			if got := shouldSkipBLEFallback(test.preferLast, test.lastType, test.sinceLastScan); got != test.want {
+				t.Fatalf("shouldSkipBLEFallback(%v, %q, %v) = %v, want %v", test.preferLast, test.lastType, test.sinceLastScan, got, test.want)
 			}
 		})
 	}

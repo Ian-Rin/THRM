@@ -512,6 +512,8 @@ type AppConfig struct {
 	CustomSpeedEnabled       bool                      `json:"customSpeedEnabled"`       // 自定义转速开关
 	CustomSpeedRPM           int                       `json:"customSpeedRPM"`           // 自定义转速值(无上下限)
 	IgnoreDeviceOnReconnect  bool                      `json:"ignoreDeviceOnReconnect"`  // 断连后忽略设备状态(保持APP配置)
+	LastDeviceTransport      string                    `json:"lastDeviceTransport"`      // 上次成功连接的传输方式("hid"/"ble")，用于重启后恢复重连偏好
+
 	SpeedAvoidance           SpeedAvoidanceConfig      `json:"speedAvoidance"`           // 智能控温转速避让
 	TimeCurveSchedule        TimeCurveScheduleConfig   `json:"timeCurveSchedule"`        // 分时曲线计划
 	SmartControl             SmartControlConfig        `json:"smartControl"`             // 学习型智能控温配置
