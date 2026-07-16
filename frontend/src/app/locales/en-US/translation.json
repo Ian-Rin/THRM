@@ -198,7 +198,8 @@
     "metrics": {
       "cpuTemperature": "CPU temperature",
       "gpuTemperature": "GPU temperature",
-      "fanRpm": "Fan RPM"
+      "fanRpm": "Fan RPM",
+      "laptopFan": "Laptop fan speed"
     },
     "disconnected": {
       "title": "Device not connected",
@@ -405,6 +406,9 @@
       },
       "predictiveTitle": "Power-aware prediction",
       "predictiveDescription": "Ramps up early from CPU/GPU power surges and temperature trends, before the measured temperature crosses a curve point. Independent from adaptive learning.",
+      "laptopGuardTitle": "Laptop fan-linked slow ramp-down",
+      "laptopGuardDescription": "While the laptop's own CPU/GPU fans are still near their recent peak, limits how fast the cooling pad ramps down, preventing oscillation where a quick temperature drop slows the pad and the temperature bounces back.",
+      "laptopGuardToggleAria": "Toggle laptop fan-linked slow ramp-down",
       "predictiveToggleAria": "Toggle power-aware prediction"
     },
     "noiseTest": {
@@ -535,6 +539,8 @@
         "cpu": "CPU",
         "gpu": "GPU",
         "fan": "Fan RPM",
+        "cpuFan": "Laptop CPU fan",
+        "gpuFan": "Laptop GPU fan",
         "cpuPower": "CPU power",
         "gpuPower": "GPU power"
       },

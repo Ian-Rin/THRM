@@ -198,7 +198,8 @@
     "metrics": {
       "cpuTemperature": "CPU 温度",
       "gpuTemperature": "GPU 温度",
-      "fanRpm": "ファン回転数"
+      "fanRpm": "ファン回転数",
+      "laptopFan": "本体ファン回転数"
     },
     "disconnected": {
       "title": "デバイスが接続されていません",
@@ -404,6 +405,9 @@
       },
       "predictiveTitle": "消費電力予測フィードフォワード",
       "predictiveDescription": "CPU/GPU の消費電力の急増と温度上昇トレンドに基づき、実測温度がカーブ点を越える前に先行して回転数を上げます。適応学習とは独立しています。",
+      "laptopGuardTitle": "本体ファン連動スローダウン",
+      "laptopGuardDescription": "本体の CPU/GPU ファンが直近ピークに近い間はクーラーの減速幅を制限し、急な温度低下→急減速→温度再上昇という振動を防ぎます。",
+      "laptopGuardToggleAria": "本体ファン連動スローダウンの切り替え",
       "predictiveToggleAria": "消費電力予測フィードフォワードの切り替え"
     },
     "noiseTest": {
@@ -534,6 +538,8 @@
         "cpu": "CPU",
         "gpu": "GPU",
         "fan": "RPM",
+        "cpuFan": "本体 CPU ファン",
+        "gpuFan": "本体 GPU ファン",
         "cpuPower": "CPU 消費電力",
         "gpuPower": "GPU 消費電力"
       },

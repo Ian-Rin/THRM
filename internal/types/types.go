@@ -341,6 +341,8 @@ type TemperatureData struct {
 	UpdateTime        int64                  `json:"updateTime"`        // 更新时间戳
 	BridgeOk          bool                   `json:"bridgeOk"`          // 桥接程序是否正常
 	BridgeMsg         string                 `json:"bridgeMessage"`     // 桥接故障提示
+	CPUFanRPM         int                    `json:"cpuFanRpm"`         // 笔记本内置 CPU 风扇转速（0=不可用）
+	GPUFanRPM         int                    `json:"gpuFanRpm"`         // 笔记本内置 GPU 风扇转速（0=不可用）
 }
 
 // TemperatureHistoryPoint CPU/GPU 温度历史点。
@@ -351,6 +353,8 @@ type TemperatureHistoryPoint struct {
 	CPUPower  float64 `json:"cpuPower"`
 	GPUPower  float64 `json:"gpuPower"`
 	FanRPM    int     `json:"fanRpm"`
+	CPUFanRPM int     `json:"cpuFanRpm"` // 笔记本内置 CPU 风扇转速（0=不可用）
+	GPUFanRPM int     `json:"gpuFanRpm"` // 笔记本内置 GPU 风扇转速（0=不可用）
 }
 
 // TemperatureHistoryPayload 温度历史返回载荷。
@@ -440,6 +444,7 @@ type SmartControlConfig struct {
 	PredictiveBoost         bool              `json:"predictiveBoost"`                 // 功耗预测前馈开关(独立于学习)
 	LearningBias            string            `json:"learningBias"`                    // 学习倾向: balanced/cooling/quiet
 	FilterTransientSpike    bool              `json:"filterTransientSpike"`            // 是否过滤孤立温度尖峰
+	LaptopFanGuard          bool              `json:"laptopFanGuard"`                  // 本机风扇联动缓降：本机散热仍高负荷时抑制散热器快速降速(仅支持读取本机风扇的机型生效)
 	TargetTemp              int               `json:"targetTemp"`                      // 目标温度(°C)
 	Aggressiveness          int               `json:"aggressiveness"`                  // 响应激进度(1-10)
 	Hysteresis              int               `json:"hysteresis"`                      // 滞回温差(°C)
@@ -537,6 +542,7 @@ func GetDefaultSmartControlConfig(curve []FanCurvePoint) SmartControlConfig {
 		PredictiveBoost:      true,
 		LearningBias:         LearningBiasBalanced,
 		FilterTransientSpike: true,
+		LaptopFanGuard:       true,
 		TargetTemp:           68,
 		Aggressiveness:       5,
 		Hysteresis:           2,

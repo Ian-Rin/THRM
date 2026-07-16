@@ -218,10 +218,13 @@ const getTempArcColor = (temp: number) => {
 const TempGaugeDisplay = memo(function TempGaugeDisplay({
   temp,
   ready,
+  laptopFanRpm = 0,
 }: {
   temp: number | undefined;
   /** 后端首次推送有效温度后置为 true；之前显示占位避免误读 0 °C */
   ready: boolean;
+  /** 笔记本内置风扇转速（仅 Uniwill/同方机型可读）；0 或不支持时不渲染 */
+  laptopFanRpm?: number;
 }) {
   const { t } = useTranslation();
 
@@ -253,7 +256,18 @@ const TempGaugeDisplay = memo(function TempGaugeDisplay({
           <AnimatedTemperatureValue temp={temp} colorClass={status.color} />
           <span className="text-xs font-medium text-muted-foreground">°C</span>
         </div>
-        <span className="mt-1 text-[11px] leading-none text-muted-foreground">{t(status.labelKey)}</span>
+        {/* 支持读取本机风扇时，用转速替换状态文字（同一行位，高度不变）；不支持时保持状态文字 */}
+        {laptopFanRpm > 0 ? (
+          <span
+            className="mt-1 inline-flex items-center gap-1 text-[11px] leading-none tabular-nums text-muted-foreground"
+            title={t('deviceStatus.metrics.laptopFan')}
+          >
+            <Fan className="h-3 w-3" />
+            {laptopFanRpm} RPM
+          </span>
+        ) : (
+          <span className="mt-1 text-[11px] leading-none text-muted-foreground">{t(status.labelKey)}</span>
+        )}
       </SemiGauge>
     </div>
   );
@@ -698,6 +712,9 @@ export default function DeviceStatus({
             : t('deviceStatus.maxRpmHint.waiting');
   const cpuPowerText = (temperature?.cpuPower ?? 0) > 0 ? `${Math.round(temperature?.cpuPower ?? 0)}W` : '--';
   const gpuPowerText = (temperature?.gpuPower ?? 0) > 0 ? `${Math.round(temperature?.gpuPower ?? 0)}W` : '--';
+  // 笔记本内置风扇转速（机械革命等 Uniwill/同方机型）；本机不支持时恒为 0，对应角标隐藏。
+  const laptopCpuFanRpm = temperature?.cpuFanRpm ?? 0;
+  const laptopGpuFanRpm = temperature?.gpuFanRpm ?? 0;
 
   return (
     <div className="space-y-3 min-[1800px]:space-y-4">
@@ -816,7 +833,7 @@ export default function DeviceStatus({
               icon={<Cpu className="h-4 w-4" />}
               label={t('deviceStatus.metrics.cpuTemperature')}
             />
-            <TempGaugeDisplay temp={temperature?.cpuTemp} ready={cpuReady} />
+            <TempGaugeDisplay temp={temperature?.cpuTemp} ready={cpuReady} laptopFanRpm={laptopCpuFanRpm} />
           </div>
 
           {/* GPU */}
@@ -825,7 +842,7 @@ export default function DeviceStatus({
               icon={<Gpu className="h-4 w-4" />}
               label={t('deviceStatus.metrics.gpuTemperature')}
             />
-            <TempGaugeDisplay temp={temperature?.gpuTemp} ready={gpuReady} />
+            <TempGaugeDisplay temp={temperature?.gpuTemp} ready={gpuReady} laptopFanRpm={laptopGpuFanRpm} />
           </div>
 
           {/* Fan */}
@@ -967,6 +984,7 @@ export default function DeviceStatus({
               </div>
               <div className="text-sm font-semibold tabular-nums">{gpuPowerText}</div>
             </div>
+
           </div>
 
         </motion.div>

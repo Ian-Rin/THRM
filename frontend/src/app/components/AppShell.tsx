@@ -236,8 +236,9 @@ function StatusBadges({
       <span
         className={clsx(
           baseClass,
+          'glacier-status-chip',
           isConnected
-            ? 'border-primary/20 bg-primary/10 text-primary'
+            ? 'glacier-status-chip--tint border-primary/20 bg-primary/10 text-primary'
             : 'border-border bg-card text-muted-foreground',
         )}
       >
@@ -248,7 +249,8 @@ function StatusBadges({
       <span
         className={clsx(
           baseClass,
-          autoControl ? 'border-primary/20 bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground',
+          'glacier-status-chip',
+          autoControl ? 'glacier-status-chip--tint border-primary/20 bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground',
         )}
       >
         <Sparkles className="h-3.5 w-3.5" />
@@ -257,13 +259,13 @@ function StatusBadges({
 
       {isConnected && (
         <>
-          <span className={clsx(baseClass, 'border-border bg-card font-semibold shadow-sm shadow-black/5')}>
+          <span className={clsx(baseClass, 'glacier-status-chip border-border bg-card font-semibold shadow-sm shadow-black/5')}>
             <Thermometer className={clsx('h-3.5 w-3.5', getTempColor(temperature?.maxTemp))} />
             <span className={clsx(getTempColor(temperature?.maxTemp))}>
               {temperature?.maxTemp ?? '--'}°C
             </span>
           </span>
-          <span className={clsx(baseClass, 'border-border bg-card font-semibold text-primary shadow-sm shadow-black/5')}>
+          <span className={clsx(baseClass, 'glacier-status-chip border-border bg-card font-semibold text-primary shadow-sm shadow-black/5')}>
             <span className={clsx('inline-flex', fanSpinDuration && 'animate-spin')} style={fanSpinStyle}>
               <Fan className="h-3.5 w-3.5" />
             </span>

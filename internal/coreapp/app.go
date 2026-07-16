@@ -14,6 +14,7 @@ import (
 	"github.com/TIANLI0/THRM/internal/device"
 	hotkeysvc "github.com/TIANLI0/THRM/internal/hotkey"
 	"github.com/TIANLI0/THRM/internal/ipc"
+	"github.com/TIANLI0/THRM/internal/laptopfan"
 	"github.com/TIANLI0/THRM/internal/logger"
 	"github.com/TIANLI0/THRM/internal/notifier"
 	"github.com/TIANLI0/THRM/internal/plugins"
@@ -30,6 +31,7 @@ type CoreApp struct {
 	bridgeManager    *bridge.Manager
 	tempReader       *temperature.Reader
 	tempHistory      *temperature.HistoryRecorder
+	laptopFanReader  *laptopfan.Reader
 	configManager    *config.Manager
 	trayManager      *tray.Manager
 	hotkeyManager    *hotkeysvc.Manager
@@ -136,6 +138,7 @@ func NewCoreApp(debugMode, isAutoStart bool, iconData []byte) *CoreApp {
 		bridgeManager:      bridgeMgr,
 		tempReader:         tempReader,
 		tempHistory:        tempHistory,
+		laptopFanReader:    laptopfan.NewReader(customLogger),
 		currentTemp:        types.TemperatureData{BridgeOk: true},
 		configManager:      configMgr,
 		trayManager:        trayMgr,

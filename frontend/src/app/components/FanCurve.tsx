@@ -303,12 +303,14 @@ const HISTORY_SERIES_FIELD: Record<HistorySeriesKey, keyof TemperatureHistoryPoi
   cpu: 'cpuTemp',
   gpu: 'gpuTemp',
   fan: 'fanRpm',
+  cpuFan: 'cpuFanRpm',
+  gpuFan: 'gpuFanRpm',
   cpuPower: 'cpuPower',
   gpuPower: 'gpuPower',
 };
 
 function formatHistorySeriesValue(key: HistorySeriesKey, value: number) {
-  if (key === 'fan') return `${Math.round(value)} RPM`;
+  if (key === 'fan' || key === 'cpuFan' || key === 'gpuFan') return `${Math.round(value)} RPM`;
   if (key === 'cpuPower' || key === 'gpuPower') return `${value.toFixed(1)} W`;
   return `${Math.round(value)} °C`;
 }
@@ -507,6 +509,8 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
     cpu: true,
     gpu: true,
     fan: true,
+    cpuFan: true,
+    gpuFan: true,
     cpuPower: true,
     gpuPower: true,
   });
@@ -600,13 +604,14 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
     const normalizeRateOffsets = (source?: number[]) => Array.isArray(source) ? [...source.slice(0, 7), ...defaultRateOffsets].slice(0, 7) : defaultRateOffsets;
 
     if (!existing) {
-      return { enabled: true, learning: true, predictiveBoost: true, learningBias: 'balanced', filterTransientSpike: true, targetTemp: 68, aggressiveness: 5, hysteresis: 2, minRpmChange: 50, rampUpLimit: 220, rampDownLimit: 160, learnRate: 3, learnWindow: 8, learnDelay: 3, overheatWeight: 8, rpmDeltaWeight: 5, noiseWeight: 4, trendGain: 5, maxLearnOffset: 300, learnedOffsets: defaultOffsets, learnedOffsetsHeat: defaultOffsets, learnedOffsetsCool: defaultOffsets, learnedRateHeat: defaultRateOffsets, learnedRateCool: defaultRateOffsets };
+      return { enabled: true, learning: true, predictiveBoost: true, learningBias: 'balanced', filterTransientSpike: true, laptopFanGuard: true, targetTemp: 68, aggressiveness: 5, hysteresis: 2, minRpmChange: 50, rampUpLimit: 220, rampDownLimit: 160, learnRate: 3, learnWindow: 8, learnDelay: 3, overheatWeight: 8, rpmDeltaWeight: 5, noiseWeight: 4, trendGain: 5, maxLearnOffset: 300, learnedOffsets: defaultOffsets, learnedOffsetsHeat: defaultOffsets, learnedOffsetsCool: defaultOffsets, learnedRateHeat: defaultRateOffsets, learnedRateCool: defaultRateOffsets };
     }
 
     return {
       ...existing,
       learning: existing.learning ?? true,
       predictiveBoost: (existing as any).predictiveBoost ?? true,
+      laptopFanGuard: (existing as any).laptopFanGuard ?? true,
       learningBias: normalizeLearningBias((existing as any).learningBias),
       filterTransientSpike: existing.filterTransientSpike ?? true,
       targetTemp: normalizeTargetTemp(existing.targetTemp ?? 68),
@@ -722,15 +727,40 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
 
     const target = focusTarget === 'history-details' ? historyDetailsRef.current : curveEditorRef.current;
     if (!target) {
+      onFocusHandled();
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => {
+    // 首次进入曲线页时，页面切换动画（y 位移）仍在进行、且方案/历史等数据
+    // 异步加载会继续改变上方内容高度，一次性 scrollIntoView 的位置会随即失效。
+    // 因此逐帧对齐目标到视口顶部，直到位置连续多帧稳定（或超时）才结束。
+    let cancelled = false;
+    let frame = 0;
+    const startedAt = performance.now();
+    let lastTop = Number.NaN;
+    let stableFrames = 0;
+
+    const align = () => {
+      if (cancelled) return;
       target.scrollIntoView({ block: 'start' });
-      onFocusHandled();
-    });
+      const top = target.getBoundingClientRect().top;
+      if (Math.abs(top - lastTop) < 1) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      lastTop = top;
+      if (stableFrames >= 8 || performance.now() - startedAt > 1200) {
+        onFocusHandled();
+        return;
+      }
+      frame = window.requestAnimationFrame(align);
+    };
+
+    frame = window.requestAnimationFrame(align);
 
     return () => {
+      cancelled = true;
       window.cancelAnimationFrame(frame);
     };
   }, [focusTarget, onFocusHandled]);
@@ -761,8 +791,18 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
   }, [detailHistoryPoints]);
 
   const historyFanMax = useMemo(() => {
-    return Math.max(4000, ...detailHistoryPoints.map((point) => point.fanRpm).filter((value) => value > 0), 0);
+    return Math.max(
+      4000,
+      ...detailHistoryPoints.flatMap((point) => [point.fanRpm, point.cpuFanRpm, point.gpuFanRpm]).filter((value) => value > 0),
+      0,
+    );
   }, [detailHistoryPoints]);
+
+  // 笔记本内置风扇转速仅部分机型（Uniwill/同方准系统）可读；无任何有效样本时整组曲线与图例隐藏。
+  const hasLaptopFanHistory = useMemo(
+    () => detailHistoryPoints.some((point) => point.cpuFanRpm > 0 || point.gpuFanRpm > 0),
+    [detailHistoryPoints],
+  );
 
   const historyPowerMax = useMemo(() => {
     const values = detailHistoryPoints.flatMap((point) => [point.cpuPower, point.gpuPower]).filter((value) => value > 0);
@@ -829,9 +869,13 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
     { key: 'cpu' as const, label: t('fanCurve.history.series.cpu'), color: '#2f6df6' },
     { key: 'gpu' as const, label: t('fanCurve.history.series.gpu'), color: '#f97316' },
     { key: 'fan' as const, label: t('fanCurve.history.series.fan'), color: '#10b981' },
+    ...(hasLaptopFanHistory ? [
+      { key: 'cpuFan' as const, label: t('fanCurve.history.series.cpuFan'), color: '#0ea5e9' },
+      { key: 'gpuFan' as const, label: t('fanCurve.history.series.gpuFan'), color: '#84cc16' },
+    ] : []),
     { key: 'cpuPower' as const, label: t('fanCurve.history.series.cpuPower'), color: '#8b5cf6' },
     { key: 'gpuPower' as const, label: t('fanCurve.history.series.gpuPower'), color: '#ec4899' },
-  ]), [t, locale]);
+  ]), [t, locale, hasLaptopFanHistory]);
 
   const toggleHistorySeries = useCallback((series: HistorySeriesKey) => {
     setHistorySeriesVisibility((prev) => ({
@@ -1202,6 +1246,10 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
 
   const handlePredictiveBoostToggle = useCallback((enabled: boolean) => {
     void updateSmartControlConfig({ predictiveBoost: enabled } as Partial<types.SmartControlConfig>);
+  }, [updateSmartControlConfig]);
+
+  const handleLaptopFanGuardToggle = useCallback((enabled: boolean) => {
+    void updateSmartControlConfig({ laptopFanGuard: enabled } as Partial<types.SmartControlConfig>);
   }, [updateSmartControlConfig]);
 
   const handleLearningBiasChange = useCallback((value: string) => {
@@ -1734,6 +1782,27 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
                 srLabel={t('fanCurve.learning.predictiveToggleAria')}
               />
             </div>
+
+            {/* 本机风扇联动缓降：仅在能读到本机 CPU/GPU 风扇转速的机型上展示 */}
+            {((temperature?.cpuFanRpm ?? 0) > 0 || (temperature?.gpuFanRpm ?? 0) > 0) && (
+              <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/55 p-3 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-xs font-medium text-muted-foreground">{t('fanCurve.learning.laptopGuardTitle')}</div>
+                    {!(smartControl as any).laptopFanGuard && <Badge variant="info">{t('fanCurve.learning.paused')}</Badge>}
+                  </div>
+                  <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('fanCurve.learning.laptopGuardDescription')}</div>
+                </div>
+                <ToggleSwitch
+                  enabled={!!(smartControl as any).laptopFanGuard}
+                  onChange={handleLaptopFanGuardToggle}
+                  loading={learningConfigLoading}
+                  size="sm"
+                  color="blue"
+                  srLabel={t('fanCurve.learning.laptopGuardToggleAria')}
+                />
+              </div>
+            )}
 
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
@@ -2300,6 +2369,8 @@ const FanCurve = memo(function FanCurve({ config, onConfigChange, isConnected, f
                         {historySeriesVisibility.cpu && <Line yAxisId="temp" type="monotone" dataKey="cpuTemp" stroke="#2f6df6" strokeWidth={2.3} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
                         {historySeriesVisibility.gpu && <Line yAxisId="temp" type="monotone" dataKey="gpuTemp" stroke="#f97316" strokeWidth={2.3} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
                         {historySeriesVisibility.fan && <Line yAxisId="fan" type="monotone" dataKey="fanRpm" stroke="#10b981" strokeWidth={2} dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
+                        {hasLaptopFanHistory && historySeriesVisibility.cpuFan && <Line yAxisId="fan" type="monotone" dataKey="cpuFanRpm" stroke="#0ea5e9" strokeWidth={1.8} strokeDasharray="6 3" dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
+                        {hasLaptopFanHistory && historySeriesVisibility.gpuFan && <Line yAxisId="fan" type="monotone" dataKey="gpuFanRpm" stroke="#84cc16" strokeWidth={1.8} strokeDasharray="6 3" dot={false} activeDot={false} isAnimationActive={false} connectNulls />}
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
