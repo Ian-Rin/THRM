@@ -724,6 +724,24 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     }
   }, [config, onConfigChange]);
 
+  const handleDisableGpuMonitoringChange = useCallback(async (disabled: boolean) => {
+    setLoading('disableGpuMonitoring', true);
+    try {
+      const newCfg = types.AppConfig.createFrom({ ...config, disableGpuMonitoring: disabled });
+      await apiService.updateConfig(newCfg);
+      onConfigChange(newCfg);
+      if (disabled) {
+        toast.info(t('controlPanel.fan.gpuMonitoringDisabledToast'), {
+          description: t('controlPanel.fan.gpuMonitoringDisabledHint'),
+        });
+      } else {
+        toast.success(t('controlPanel.fan.gpuMonitoringEnabledToast'));
+      }
+    } catch { /* noop */ } finally {
+      setLoading('disableGpuMonitoring', false);
+    }
+  }, [config, onConfigChange, t]);
+
   const handleGpuDeviceChange = useCallback(async (deviceKey: string) => {
     setLoading('gpuDevice', true);
     try {
@@ -1303,11 +1321,24 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
                 </div>
 
                 <div className="rounded-xl border border-border/70 bg-card px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Gpu className="h-4 w-4 text-primary" />
-                    <span>{t('controlPanel.fan.gpuBaseline')}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+                      <Gpu className="h-4 w-4 text-primary" />
+                      <span>{t('controlPanel.fan.gpuBaseline')}</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">{t('controlPanel.fan.gpuMonitoringToggle')}</span>
+                      <ToggleSwitch
+                        enabled={!(config as any).disableGpuMonitoring}
+                        onChange={(enabled: boolean) => void handleDisableGpuMonitoringChange(!enabled)}
+                        loading={loadingStates.disableGpuMonitoring}
+                        size="sm"
+                        color="blue"
+                        srLabel={t('controlPanel.fan.gpuMonitoringToggleAria')}
+                      />
+                    </div>
                   </div>
-                  <div className="mt-3 space-y-3">
+                  <div className={clsx('mt-3 space-y-3', (config as any).disableGpuMonitoring && 'pointer-events-none opacity-50')}>
                     <SelectionField
                       label={t('controlPanel.fan.gpuDevice')}
                       hint={selectedGpuDevice === 'auto'

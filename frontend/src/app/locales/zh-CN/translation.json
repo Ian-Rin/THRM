@@ -128,7 +128,8 @@
       "good": "良好"
     },
     "tempGauge": {
-      "loading": "读取中…"
+      "loading": "读取中…",
+      "monitoringDisabled": "已停用监测"
     },
     "fan": {
       "targetSummary": "目标 {{target}} · {{gear}}"
@@ -677,6 +678,11 @@
       "currentBaselineTemperature": "当前基准温度 {{temperature}}°C",
       "noCpuTemperatureData": "当前无可用 CPU 温度数据",
       "gpuBaseline": "GPU 基准",
+      "gpuMonitoringToggle": "监测",
+      "gpuMonitoringToggleAria": "开关 GPU 温度监测",
+      "gpuMonitoringDisabledToast": "已停用 GPU 温度监测",
+      "gpuMonitoringEnabledToast": "已恢复 GPU 温度监测",
+      "gpuMonitoringDisabledHint": "不再轮询 GPU 传感器（混合显卡下可避免独显被持续唤醒），控温基准仅使用 CPU 温度。",
       "gpuDevice": "显卡设备",
       "gpuDeviceHintDetected": "自动模式当前命中：{{model}}",
       "gpuDeviceHintAuto": "自动模式会优先尝试独显。",

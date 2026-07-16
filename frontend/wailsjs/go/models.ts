@@ -415,6 +415,7 @@ export namespace types {
 	    tempUpdateRate: number;
 	    tempSampleCount: number;
 	    tempSource: string;
+	    disableGpuMonitoring: boolean;
 	    gpuDevice: string;
 	    cpuSensor: string;
 	    cpuSensors: string[];
@@ -460,6 +461,7 @@ export namespace types {
 	        this.tempUpdateRate = source["tempUpdateRate"];
 	        this.tempSampleCount = source["tempSampleCount"];
 	        this.tempSource = source["tempSource"];
+	        this.disableGpuMonitoring = source["disableGpuMonitoring"];
 	        this.gpuDevice = source["gpuDevice"];
 	        this.cpuSensor = source["cpuSensor"];
 	        this.cpuSensors = source["cpuSensors"];

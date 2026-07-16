@@ -203,6 +203,7 @@ func (a *CoreApp) startTemperatureMonitoring() {
 		CpuSensor:  cfg.CpuSensor,
 		CpuSensors: cfg.CpuSensors,
 		GpuSensor:  cfg.GpuSensor,
+		DisableGpu: cfg.DisableGpuMonitoring,
 	}
 	initialTemp := a.tempReader.Read(initialSelection)
 	if initialTemp.ControlTemp > 0 {
@@ -284,6 +285,7 @@ monitorLoop:
 				CpuSensor:  cfg.CpuSensor,
 				CpuSensors: cfg.CpuSensors,
 				GpuSensor:  cfg.GpuSensor,
+				DisableGpu: cfg.DisableGpuMonitoring,
 			}
 			temp := a.tempReader.Read(selection)
 			// 补充笔记本内置风扇转速（机械革命等 Uniwill/同方准系统），不支持时保持 0。

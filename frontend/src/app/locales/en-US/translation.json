@@ -128,7 +128,8 @@
       "good": "Good"
     },
     "tempGauge": {
-      "loading": "Reading..."
+      "loading": "Reading...",
+      "monitoringDisabled": "Monitoring off"
     },
     "fan": {
       "targetSummary": "Target {{target}} · {{gear}}"
@@ -677,6 +678,11 @@
       "currentBaselineTemperature": "Current baseline temperature {{temperature}}°C",
       "noCpuTemperatureData": "No CPU temperature data is currently available",
       "gpuBaseline": "GPU baseline",
+      "gpuMonitoringToggle": "Monitor",
+      "gpuMonitoringToggleAria": "Toggle GPU temperature monitoring",
+      "gpuMonitoringDisabledToast": "GPU temperature monitoring disabled",
+      "gpuMonitoringEnabledToast": "GPU temperature monitoring restored",
+      "gpuMonitoringDisabledHint": "GPU sensors are no longer polled (prevents the discrete GPU from being kept awake on hybrid laptops); the control baseline uses CPU temperature only.",
       "gpuDevice": "GPU device",
       "gpuDeviceHintDetected": "Auto mode currently matched: {{model}}",
       "gpuDeviceHintAuto": "Auto mode will prefer the discrete GPU when possible.",

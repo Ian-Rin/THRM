@@ -219,14 +219,45 @@ const TempGaugeDisplay = memo(function TempGaugeDisplay({
   temp,
   ready,
   laptopFanRpm = 0,
+  monitoringDisabled = false,
 }: {
   temp: number | undefined;
   /** 后端首次推送有效温度后置为 true；之前显示占位避免误读 0 °C */
   ready: boolean;
   /** 笔记本内置风扇转速（仅 Uniwill/同方机型可读）；0 或不支持时不渲染 */
   laptopFanRpm?: number;
+  /** 用户在设置中停用了该路温度监测（如混合显卡停用 GPU 监测） */
+  monitoringDisabled?: boolean;
 }) {
   const { t } = useTranslation();
+
+  // 用户已停用监测 → 灰色占位 + "已停用监测"，与"读取中"区分开。
+  // 本机风扇转速走 EC 读取、与 GPU 温度监测互不影响，停用后仍照常显示。
+  if (monitoringDisabled) {
+    return (
+      <div className="flex h-full w-full max-w-[20rem] min-[1800px]:max-w-[22rem] flex-1 flex-col items-center justify-end">
+        <SemiGauge value={0} color="var(--muted-foreground)">
+          <div className="flex items-baseline gap-0.5">
+            <span className="text-[28px] min-[1800px]:text-[36px] font-bold leading-none tabular-nums tracking-tight text-muted-foreground/70">--</span>
+            <span className="text-xs font-medium text-muted-foreground/70">°C</span>
+          </div>
+          {laptopFanRpm > 0 ? (
+            <span
+              className="mt-1 inline-flex items-center gap-1 text-[11px] leading-none tabular-nums text-muted-foreground"
+              title={t('deviceStatus.metrics.laptopFan')}
+            >
+              <Fan className="h-3 w-3" />
+              {laptopFanRpm} RPM
+            </span>
+          ) : (
+            <span className="mt-1 text-[11px] leading-none text-muted-foreground">
+              {t('deviceStatus.tempGauge.monitoringDisabled')}
+            </span>
+          )}
+        </SemiGauge>
+      </div>
+    );
+  }
 
   // 未就绪 → 占位：灰色弧、"--"、"读取中…"，不进入正常状态色
   if (!ready) {
@@ -842,7 +873,12 @@ export default function DeviceStatus({
               icon={<Gpu className="h-4 w-4" />}
               label={t('deviceStatus.metrics.gpuTemperature')}
             />
-            <TempGaugeDisplay temp={temperature?.gpuTemp} ready={gpuReady} laptopFanRpm={laptopGpuFanRpm} />
+            <TempGaugeDisplay
+              temp={temperature?.gpuTemp}
+              ready={gpuReady}
+              laptopFanRpm={laptopGpuFanRpm}
+              monitoringDisabled={!!(config as any).disableGpuMonitoring}
+            />
           </div>
 
           {/* Fan */}

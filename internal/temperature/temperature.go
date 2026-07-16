@@ -54,15 +54,20 @@ func (r *Reader) Read(selection types.TemperatureSelection) types.TemperatureDat
 	if r.bridgeManager != nil && r.bridgeManager.IsSupported() {
 		bridgeTemp := r.bridgeManager.GetTemperature(selection)
 		copyBridgeTemperatureMetadata(&temp, bridgeTemp, selection)
+		if selection.DisableGpu {
+			stripGpuReadings(&temp, selection.TempSource)
+		}
 		if bridgeTemp.Success {
-			if bridgeTemp.CpuTemp == 0 && bridgeTemp.GpuTemp == 0 {
+			if bridgeTemp.CpuTemp == 0 && (selection.DisableGpu || bridgeTemp.GpuTemp == 0) {
 				temp.BridgeOk = false
 				temp.BridgeMsg = "桥接程序返回空温度（CPU/GPU 均为 0），已尝试备用读取；可重新初始化温度监控或检查 PawnIO/其它硬件监控工具。"
 				r.logger.Warn("桥接程序返回空温度数据，使用备用方法")
 
 				temp.CPUTemp = r.readCPUTemperature()
-				temp.GPUTemp = r.readGPUTemperature()
-				temp.GPUPower = r.readGPUPower()
+				if !selection.DisableGpu {
+					temp.GPUTemp = r.readGPUTemperature()
+					temp.GPUPower = r.readGPUPower()
+				}
 				temp.MaxTemp = max(temp.CPUTemp, temp.GPUTemp)
 				temp.ControlTemp = resolveControlTemp(temp.CPUTemp, temp.GPUTemp, selection.TempSource)
 				return temp
@@ -89,15 +94,31 @@ func (r *Reader) Read(selection types.TemperatureSelection) types.TemperatureDat
 	// 读取CPU温度
 	temp.CPUTemp = r.readCPUTemperature()
 
-	// 读取GPU温度
-	temp.GPUTemp = r.readGPUTemperature()
-	temp.GPUPower = r.readGPUPower()
+	// 读取GPU温度（停用 GPU 监测时完全跳过，避免 nvidia-smi 等轮询唤醒独显）
+	if !selection.DisableGpu {
+		temp.GPUTemp = r.readGPUTemperature()
+		temp.GPUPower = r.readGPUPower()
+	}
 
 	// 计算最高温度
 	temp.MaxTemp = max(temp.CPUTemp, temp.GPUTemp)
 	temp.ControlTemp = resolveControlTemp(temp.CPUTemp, temp.GPUTemp, selection.TempSource)
 
 	return temp
+}
+
+// stripGpuReadings 清空 GPU 相关读数与元数据。停用 GPU 监测时即便桥接程序
+// （如旧版本）仍返回 GPU 数据，也保证对外一致为“无 GPU 读数”，控温基准回退 CPU。
+func stripGpuReadings(temp *types.TemperatureData, tempSource string) {
+	temp.GPUTemp = 0
+	temp.GPUPower = 0
+	temp.GpuModel = ""
+	temp.GpuSensors = nil
+	temp.GpuPowerSensors = nil
+	temp.GpuDevices = nil
+	temp.SelectedGpuDevice = ""
+	temp.MaxTemp = temp.CPUTemp
+	temp.ControlTemp = resolveControlTemp(temp.CPUTemp, 0, tempSource)
 }
 
 func copyBridgeTemperatureMetadata(temp *types.TemperatureData, bridgeTemp types.BridgeTemperatureData, selection types.TemperatureSelection) {

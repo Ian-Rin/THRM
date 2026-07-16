@@ -172,6 +172,9 @@ type TemperatureSelection struct {
 	// 取所选传感器温度的算术平均作为 CPU 控温基准。
 	CpuSensors []string `json:"cpuSensors"`
 	GpuSensor  string   `json:"gpuSensor"`
+	// DisableGpu 完全跳过 GPU 温度/功耗读取。混合显卡笔记本上轮询 GPU 传感器
+	// 会持续唤醒独显，开启后控温基准只使用 CPU 温度。
+	DisableGpu bool `json:"disableGpu"`
 }
 
 // NormalizeTemperatureSelection 归一化温度选择配置。
@@ -494,6 +497,7 @@ type AppConfig struct {
 	TempUpdateRate           int                       `json:"tempUpdateRate"`           // 温度更新频率(秒)
 	TempSampleCount          int                       `json:"tempSampleCount"`          // 温度采样次数(用于平均)
 	TempSource               string                    `json:"tempSource"`               // 控温温度来源: max/cpu/gpu
+	DisableGpuMonitoring     bool                      `json:"disableGpuMonitoring"`     // 停用 GPU 温度监测(混合显卡防止独显被轮询唤醒)
 	GpuDevice                string                    `json:"gpuDevice"`                // GPU 设备选择: auto 或设备 key
 	CpuSensor                string                    `json:"cpuSensor"`                // CPU 传感器选择: auto 或传感器 key
 	CpuSensors               []string                  `json:"cpuSensors"`               // CPU 多传感器选择(多核平均): 为空则按 cpuSensor 单选/自动
