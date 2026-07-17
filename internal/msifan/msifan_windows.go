@@ -83,11 +83,82 @@ func Diagnose(driverPath string, logf func(string)) error {
 	ec := NewEC(drv)
 	s, e := ec.ReadString(m.FirmVerReg, m.FirmVerLen)
 	logf(fmt.Sprintf("--- 正式接口 ReadString(0xA0,12) = %q err=%v", s, e))
-	if t, e2 := ec.ReadReg(m.CpuTemp); e2 == nil {
-		logf(fmt.Sprintf("--- 正式接口 CPU温度 = %d°C, GPU 略", t))
+
+	// ---- 全寄存器 dump ----
+	rb := func(reg byte) string {
+		v, err := ec.ReadReg(reg)
+		if err != nil {
+			return fmt.Sprintf("0x%02X=ERR(%v)", reg, err)
+		}
+		return fmt.Sprintf("0x%02X=0x%02X(%d)", reg, v, v)
 	}
+	rlist := func(regs []byte) string {
+		out := ""
+		for _, r := range regs {
+			out += rb(r) + " "
+		}
+		return out
+	}
+	logf("--- 全寄存器 dump ---")
+	logf("固件版本 " + rb(m.FirmVerReg))
+	logf("风扇模式 0xD4 " + rb(m.FanModeReg) + "  (YAMDCC枚举: 0x0D自动/0x1D静音/0x4D基础/0x8D高级)")
+	logf("性能模式 0xD2 " + rb(m.PerfModeReg))
+	logf("FullBlast 0x98 " + rb(m.FullBlastReg) + "  (bit7=1 表示 Cooler Boost 开)")
+	logf("CPU温度 " + rb(m.CpuTemp) + "  GPU温度 " + rb(m.GpuTemp))
+	logf("CPU当前速度 " + rb(m.CpuSpeed) + "  GPU当前速度 " + rb(m.GpuSpeed))
+	if raw, err := ec.ReadWordBE(m.CpuRpm); err == nil {
+		rpm := 0
+		if raw > 0 {
+			rpm = m.RPMDividend / int(raw)
+		}
+		logf(fmt.Sprintf("CPU RPM原始=0x%04X → %d RPM", raw, rpm))
+	}
+	if raw, err := ec.ReadWordBE(m.GpuRpm); err == nil {
+		rpm := 0
+		if raw > 0 {
+			rpm = m.RPMDividend / int(raw)
+		}
+		logf(fmt.Sprintf("GPU RPM原始=0x%04X → %d RPM", raw, rpm))
+	}
+	logf("CPU曲线速度点 " + rlist(m.CpuCurveSpeed[:]))
+	logf("CPU升温阈值   " + rlist(m.CpuTup[:]))
+	logf("CPU降温阈值Δ  " + rlist(m.CpuTdown[:]))
+	logf("GPU曲线速度点 " + rlist(m.GpuCurveSpeed[:]))
+	logf("GPU升温阈值   " + rlist(m.GpuTup[:]))
+	logf("GPU降温阈值Δ  " + rlist(m.GpuTdown[:]))
+
+	// ---- 端到端：跑真实 Init + Status（只读，不写曲线）----
+	drv.Close() // 释放句柄，交给正式控制器重新打开
+	logf("--- 端到端：真实 Init + Status（只读）---")
+	ctl := New(&logfLogger{logf})
+	if err := ctl.Init(driverPath); err != nil {
+		logf("Init 失败: " + err.Error())
+		return nil
+	}
+	defer ctl.Close()
+	logf("Init 成功 ✓ 后端已就绪")
+	st, err := ctl.Status()
+	if err != nil {
+		logf("Status 失败: " + err.Error())
+		return nil
+	}
+	logf(fmt.Sprintf("Status: 固件=%s CPU=%d°C/%dRPM GPU=%d°C/%dRPM CPU速度=%d GPU速度=%d FullBlast=%v",
+		st.FirmVer, st.CpuTemp, st.CpuRPM, st.GpuTemp, st.GpuRPM, st.CpuSpeed, st.GpuSpeed, st.FullBlast))
+	logf(">>> 若以上 Status 数值合理，说明联动可正常启用 <<<")
 	return nil
 }
+
+// logfLogger 把 types.Logger 转发到 logf，供 Diagnose 复用正式控制器。
+type logfLogger struct{ logf func(string) }
+
+func (l *logfLogger) Info(f string, v ...any)  { l.logf("[INFO] " + fmt.Sprintf(f, v...)) }
+func (l *logfLogger) Error(f string, v ...any) { l.logf("[ERR ] " + fmt.Sprintf(f, v...)) }
+func (l *logfLogger) Warn(f string, v ...any)  { l.logf("[WARN] " + fmt.Sprintf(f, v...)) }
+func (l *logfLogger) Debug(f string, v ...any) { l.logf("[DBG ] " + fmt.Sprintf(f, v...)) }
+func (l *logfLogger) Close()                   {}
+func (l *logfLogger) CleanOldLogs()            {}
+func (l *logfLogger) SetDebugMode(bool)        {}
+func (l *logfLogger) GetLogDir() string        { return "" }
 
 func (c *winController) Init(driverPath string) error {
 	c.mu.Lock()
@@ -114,9 +185,18 @@ func (c *winController) Init(driverPath string) error {
 		return fmt.Errorf("msifan: EC 固件版本异常（%q），拒绝启用写入以免误写非 MSI EC", firm)
 	}
 	mode, err := ec.ReadReg(c.m.FanModeReg)
-	if err != nil || !knownFanMode(mode) {
+	if err != nil {
 		drv.Close()
-		return fmt.Errorf("msifan: 风扇模式寄存器校验失败 (val=0x%02X, err=%v)", mode, err)
+		return fmt.Errorf("msifan: 读取风扇模式寄存器失败: %w", err)
+	}
+	if !knownFanMode(mode) {
+		// 不同固件/机型的风扇模式寄存器可能持有 YAMDCC 枚举外的值（本机实测 0x80：
+		// 高位 0x8 属 Advanced 族、低位非 0xD 表示手动编辑位未开）。机型身份已由
+		// 固件 "IMS" 校验确认，写曲线前 ensureAdvancedLocked 会显式切到 Advanced(0x8D)，
+		// 故此处仅记录、不作拒绝条件。
+		if c.log != nil {
+			c.log.Info("msifan: 风扇模式寄存器值 0x%02X 不在已知枚举内，仍按 MSI EC 启用（写入前会切到 Advanced）", mode)
+		}
 	}
 
 	c.drv, c.ec, c.firm, c.inited = drv, ec, strings.TrimSpace(firm), true
