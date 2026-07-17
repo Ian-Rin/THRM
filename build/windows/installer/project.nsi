@@ -923,12 +923,15 @@ Section "$(THRM_STR_SECTION_MAIN)" SEC_MAIN
     File "/oname=THRM Core.exe" "${CORE_EXECUTABLE_SOURCE}"
 
     # WinRing0 driver for MSI EC fan control (must sit next to THRM Core.exe).
-    # 先停止并删除可能仍在运行的 WinRing0 内核服务，否则旧的 .sys 文件被内核
-    # 占用，覆盖时会报 “无法打开要写入的文件”。删除后由 THRM Core 运行时重建。
+    # 尽力停止/删除可能仍在运行的 WinRing0 内核服务以解锁旧驱动文件。
     nsExec::ExecToStack '"$SYSDIR\sc.exe" stop WinRing0_1_2_0'
     nsExec::ExecToStack '"$SYSDIR\sc.exe" delete WinRing0_1_2_0'
-    # /nonfatal: builds without the driver still succeed (feature degrades gracefully).
-    File /nonfatal "..\..\bin\WinRing0x64.sys"
+    # 驱动是固定不变的文件：若仍被内核占用无法覆盖，用 SetOverwrite try 跳过而
+    # 不中止安装（已存在的同一份驱动照常可用），并用 /REBOOTOK 安排重启后替换。
+    # 这样即便 sc 停不掉服务，安装也不会报“无法打开要写入的文件”。
+    SetOverwrite try
+    File /nonfatal /REBOOTOK "..\..\bin\WinRing0x64.sys"
+    SetOverwrite on
 
     # Copy bridge directory and its contents
     DetailPrint "$(THRM_STR_INSTALLING_BRIDGE)"
