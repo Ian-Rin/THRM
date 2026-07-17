@@ -12,6 +12,12 @@ type noopController struct{}
 
 func newPlatformController(_ types.Logger) Controller { return noopController{} }
 
+// Diagnose 仅 Windows 支持。
+func Diagnose(_ string, logf func(string)) error {
+	logf("msifan: 仅支持 Windows")
+	return errUnsupported
+}
+
 var errUnsupported = errors.New("msifan: 仅支持 Windows")
 
 func (noopController) Init(string) error              { return errUnsupported }

@@ -2,6 +2,7 @@ package msifan
 
 import (
 	"testing"
+	"time"
 )
 
 // mockEC 模拟一个标准 ACPI EC 的端口级状态机（0x66/0x62）。
@@ -101,6 +102,51 @@ type stuckEC struct{}
 
 func (stuckEC) ReadPort(port uint16) (byte, error)     { return ecStatusIBF, nil }
 func (stuckEC) WritePort(port uint16, val byte) error  { return nil }
+
+// flakyOBFEC 模拟真机上观测到的 MSI EC 行为：握手正常消费命令/地址，
+// 数据端口返回正确值，但 OBF（输出就绪位）永不置位。
+type flakyOBFEC struct {
+	ram   [256]byte
+	stage int
+	addr  byte
+	out   byte
+}
+
+func (m *flakyOBFEC) ReadPort(port uint16) (byte, error) {
+	if port == ecPortCmd {
+		return 0x00, nil // 状态口恒 0：IBF 永远清零、OBF 永远不置位
+	}
+	return m.out, nil // 数据端口始终返回上次寻址的值
+}
+
+func (m *flakyOBFEC) WritePort(port uint16, value byte) error {
+	switch port {
+	case ecPortCmd:
+		m.stage = 1
+	case ecPortData:
+		if m.stage == 1 {
+			m.addr = value
+			m.out = m.ram[m.addr]
+			m.stage = 0
+		}
+	}
+	return nil
+}
+
+func TestECTolerantOBF(t *testing.T) {
+	mock := &flakyOBFEC{}
+	copy(mock.ram[0xA0:], "15M1IMS2.112")
+	mock.ram[0x68] = 67
+	ec := NewEC(mock)
+	ec.timeout = time.Millisecond // 快速跳过 OBF 等待
+
+	if s, err := ec.ReadString(0xA0, 12); err != nil || s != "15M1IMS2.112" {
+		t.Fatalf("OBF 不置位时应仍能读出固件串: got %q err=%v", s, err)
+	}
+	if v, err := ec.ReadReg(0x68); err != nil || v != 67 {
+		t.Fatalf("OBF 不置位时应仍能读出温度: got %d err=%v", v, err)
+	}
+}
 
 func TestECTimeout(t *testing.T) {
 	ec := NewEC(stuckEC{})

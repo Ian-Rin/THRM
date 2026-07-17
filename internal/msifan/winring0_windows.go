@@ -29,9 +29,10 @@ type winRing0 struct {
 const winRing0Name = "WinRing0_1_2_0"
 
 const (
-	ioctlReadIoPortByte  = 0x9C40<<16 | 1<<14 | 0x833<<2
-	ioctlWriteIoPortByte = 0x9C40<<16 | 2<<14 | 0x836<<2
-	ioctlGetRefCount     = 0x9C40<<16 | 0x801<<2
+	ioctlGetDriverVersion = 0x9C40<<16 | 0x800<<2
+	ioctlReadIoPortByte   = 0x9C40<<16 | 1<<14 | 0x833<<2
+	ioctlWriteIoPortByte  = 0x9C40<<16 | 2<<14 | 0x836<<2
+	ioctlGetRefCount      = 0x9C40<<16 | 0x801<<2
 )
 
 // openWinRing0 打开（必要时先安装并启动）WinRing0 驱动。
@@ -152,6 +153,18 @@ func (w *winRing0) Close() {
 			w.cleanupService()
 		}
 	}
+}
+
+// driverVersion 返回 WinRing0 报告的驱动版本（纯驱动调用，不触碰硬件）。
+// 正常返回类似 0x01020005（1.2.0.5）；返回 0 说明 IOCTL 读通路本身有问题。
+func (w *winRing0) driverVersion() uint32 {
+	var out, ret uint32
+	err := windows.DeviceIoControl(w.handle, ioctlGetDriverVersion,
+		nil, 0, (*byte)(unsafe.Pointer(&out)), 4, &ret, nil)
+	if err != nil {
+		return 0
+	}
+	return out
 }
 
 func (w *winRing0) refCount() uint32 {

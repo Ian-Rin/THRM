@@ -110,9 +110,13 @@ func (e *EC) readByteLocked(reg byte) (byte, error) {
 	if err := e.waitIBFClear(); err != nil {
 		return 0, err
 	}
-	if err := e.waitOBFSet(); err != nil {
-		return 0, err
-	}
+	// 部分 MSI EC 在读取时 OBF（输出就绪位）不可靠——有的寄存器迟迟不置位、
+	// 甚至根本不置位，但握手完成后数据端口的值其实已就绪（在真机上观测到
+	// “status=0x00 但 0x62 读回正确温度”）。因此把 OBF 当“尽力等待”：
+	// 等到就立即读，等超时也照常读，读回值的正确性由上层语义校验兜底
+	//（如固件串必须含 "IMS"）。这样既兼容 OBF 正常的寄存器，也不被
+	// OBF 异常的寄存器（如固件区 0xA0）卡死。
+	_ = e.waitOBFSet()
 	return e.io.ReadPort(ecPortData)
 }
 

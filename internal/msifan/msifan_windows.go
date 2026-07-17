@@ -27,6 +27,68 @@ func newPlatformController(logger types.Logger) Controller {
 	return &winController{log: logger, m: Vector16HX}
 }
 
+// Diagnose 运行一次 EC 访问自检，逐步把结果喂给 logf，用于定位
+// “EC 状态等待超时” 属于哪一层（驱动通路 / 端口读 / 写 / EC 协议 / 机型）。
+func Diagnose(driverPath string, logf func(string)) error {
+	logf(fmt.Sprintf("驱动路径: %q", driverPath))
+	drv, err := openWinRing0(driverPath)
+	if err != nil {
+		logf("打开 WinRing0 失败: " + err.Error())
+		return err
+	}
+	defer drv.Close()
+	logf("WinRing0 已打开")
+
+	ver := drv.driverVersion()
+	logf(fmt.Sprintf("GetDriverVersion = 0x%08X  (非 0 → IOCTL 读通路正常；0 → 驱动通路本身有问题)", ver))
+	logf(fmt.Sprintf("GetRefCount      = %d", drv.refCount()))
+
+	// 裸读状态口，观察 IBF/OBF
+	for i := 0; i < 3; i++ {
+		v, e := drv.ReadPort(0x66)
+		logf(fmt.Sprintf("裸读 0x66(状态口) #%d = 0x%02X  IBF=%d OBF=%d  err=%v",
+			i, v, (v>>1)&1, v&1, e))
+	}
+
+	m := Vector16HX
+	// 手动逐步做一次 EC 读（读 CPU 温度 0x68），每步打印状态口
+	logf("--- 手动 EC 读 0x68(CPU温度) ---")
+	verboseRead := func(reg byte, name string) {
+		step := func(label string) byte {
+			st, _ := drv.ReadPort(0x66)
+			logf(fmt.Sprintf("  %-16s 状态=0x%02X (IBF=%d OBF=%d)", label, st, (st>>1)&1, st&1))
+			return st
+		}
+		step("发命令前")
+		if e := drv.WritePort(0x66, 0x80); e != nil {
+			logf("  写 RD_EC(0x80) 失败: " + e.Error())
+			return
+		}
+		step("写0x80后")
+		if e := drv.WritePort(0x62, reg); e != nil {
+			logf("  写地址失败: " + e.Error())
+			return
+		}
+		st := step("写地址后")
+		// 轮询 OBF 最多 ~200ms
+		for i := 0; i < 2000 && st&1 == 0; i++ {
+			st, _ = drv.ReadPort(0x66)
+		}
+		val, _ := drv.ReadPort(0x62)
+		logf(fmt.Sprintf("  轮询后状态=0x%02X, 读回 %s = 0x%02X (%d)", st, name, val, val))
+	}
+	verboseRead(m.CpuTemp, "CPU温度")
+
+	// 走正式 EC 接口读固件串
+	ec := NewEC(drv)
+	s, e := ec.ReadString(m.FirmVerReg, m.FirmVerLen)
+	logf(fmt.Sprintf("--- 正式接口 ReadString(0xA0,12) = %q err=%v", s, e))
+	if t, e2 := ec.ReadReg(m.CpuTemp); e2 == nil {
+		logf(fmt.Sprintf("--- 正式接口 CPU温度 = %d°C, GPU 略", t))
+	}
+	return nil
+}
+
 func (c *winController) Init(driverPath string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
