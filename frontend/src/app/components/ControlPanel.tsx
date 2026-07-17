@@ -929,17 +929,28 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     }
   }, [config, msiEcConfig, onConfigChange, t]);
 
+  const fetchMsiEcStatus = useCallback(async () => {
+    try {
+      const status = await apiService.getMsiEcStatus();
+      setMsiEcStatus(status);
+    } catch {
+      /* 后端未就绪时静默忽略，等待下一次轮询或支持状态事件 */
+    }
+  }, []);
+
   const handleMsiEcFullBlastToggle = useCallback(async (enabled: boolean) => {
     setCoolerBoostLoading(true);
     try {
       await apiService.setMsiEcFullBlast(enabled);
-      setMsiEcStatus((prev) => (prev ? { ...prev, status: { ...prev.status, fullBlast: enabled } } : prev));
+      // 重新拉取而非本地拼装：MsiEcStatus 是 wails 生成的类实例（带 convertValues
+      // 方法），对象展开会丢失该方法导致类型不匹配。
+      await fetchMsiEcStatus();
     } catch (e) {
       toast.error(t('controlPanel.msiEcFan.toasts.coolerBoostFailed', { error: getErrorMessage(e) }));
     } finally {
       setCoolerBoostLoading(false);
     }
-  }, [t]);
+  }, [t, fetchMsiEcStatus]);
 
   const loadCurveProfiles = useCallback(async () => {
     try {
@@ -996,15 +1007,6 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
       apiService.updateGuiResponseTime().catch(() => {});
     }, 60000);
     return () => window.clearInterval(i);
-  }, []);
-
-  const fetchMsiEcStatus = useCallback(async () => {
-    try {
-      const status = await apiService.getMsiEcStatus();
-      setMsiEcStatus(status);
-    } catch {
-      /* 后端未就绪时静默忽略，等待下一次轮询或支持状态事件 */
-    }
   }, []);
 
   // MSI EC 风扇状态：仅在启用时轮询，避免未装机型无意义调用后端。
