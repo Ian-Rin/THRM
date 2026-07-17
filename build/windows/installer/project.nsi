@@ -888,6 +888,9 @@ Section "$(THRM_STR_SECTION_MAIN)" SEC_MAIN
 
         # Clean up old files but preserve user data
         DetailPrint "$(THRM_STR_CLEAN_OLD_FILES)"
+        # 停止并删除 WinRing0 内核服务，解锁旧驱动文件以便删除/覆盖
+        nsExec::ExecToStack '"$SYSDIR\sc.exe" stop WinRing0_1_2_0'
+        nsExec::ExecToStack '"$SYSDIR\sc.exe" delete WinRing0_1_2_0'
         Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
         Delete "$INSTDIR\THRM Core.exe"
         Delete "$INSTDIR\WinRing0x64.sys"
@@ -920,6 +923,10 @@ Section "$(THRM_STR_SECTION_MAIN)" SEC_MAIN
     File "/oname=THRM Core.exe" "${CORE_EXECUTABLE_SOURCE}"
 
     # WinRing0 driver for MSI EC fan control (must sit next to THRM Core.exe).
+    # 先停止并删除可能仍在运行的 WinRing0 内核服务，否则旧的 .sys 文件被内核
+    # 占用，覆盖时会报 “无法打开要写入的文件”。删除后由 THRM Core 运行时重建。
+    nsExec::ExecToStack '"$SYSDIR\sc.exe" stop WinRing0_1_2_0'
+    nsExec::ExecToStack '"$SYSDIR\sc.exe" delete WinRing0_1_2_0'
     # /nonfatal: builds without the driver still succeed (feature degrades gracefully).
     File /nonfatal "..\..\bin\WinRing0x64.sys"
 
