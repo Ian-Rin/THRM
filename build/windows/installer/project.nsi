@@ -890,6 +890,7 @@ Section "$(THRM_STR_SECTION_MAIN)" SEC_MAIN
         DetailPrint "$(THRM_STR_CLEAN_OLD_FILES)"
         Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
         Delete "$INSTDIR\THRM Core.exe"
+        Delete "$INSTDIR\WinRing0x64.sys"
         Delete "$INSTDIR\BS2PRO-Controller.exe"
         Delete "$INSTDIR\BS2PRO-controller.exe"
         Delete "$INSTDIR\BS2PRO.exe"
@@ -917,7 +918,11 @@ Section "$(THRM_STR_SECTION_MAIN)" SEC_MAIN
     # Copy core service executable
     DetailPrint "$(THRM_STR_INSTALLING_CORE)"
     File "/oname=THRM Core.exe" "${CORE_EXECUTABLE_SOURCE}"
-    
+
+    # WinRing0 driver for MSI EC fan control (must sit next to THRM Core.exe).
+    # /nonfatal: builds without the driver still succeed (feature degrades gracefully).
+    File /nonfatal "..\..\bin\WinRing0x64.sys"
+
     # Copy bridge directory and its contents
     DetailPrint "$(THRM_STR_INSTALLING_BRIDGE)"
     SetOutPath $INSTDIR\bridge

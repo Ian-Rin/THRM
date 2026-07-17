@@ -205,6 +205,12 @@ jobs:
           Copy-Item 'build/bin/THRM Core.exe' 'build/output/THRM Core.exe'
           Copy-Item build/bin/PawnIO_setup.exe build/output/PawnIO_setup.exe
           Copy-Item -Recurse build/bin/bridge build/output/bridge
+          # WinRing0 driver for MSI EC fan control (sits next to THRM Core.exe)
+          if (Test-Path 'build/bin/WinRing0x64.sys') {
+            Copy-Item 'build/bin/WinRing0x64.sys' 'build/output/WinRing0x64.sys'
+          } else {
+            Write-Warning 'WinRing0x64.sys missing; MSI EC fan control will not work out of the box'
+          }
           if (Test-Path 'build/bin/THRM-amd64-installer.exe') {
             Copy-Item 'build/bin/THRM-amd64-installer.exe' 'build/output/THRM-amd64-installer.exe'
           }
