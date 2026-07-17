@@ -141,6 +141,12 @@ func (a *App) handleCoreEvent(event ipc.Event) {
 			runtime.EventsEmit(a.ctx, "legion-power-mode-update", payload)
 		}
 
+	case ipc.EventMsiEcSupportUpdate:
+		var payload map[string]any
+		if err := json.Unmarshal(event.Data, &payload); err == nil {
+			runtime.EventsEmit(a.ctx, "msi-ec-support-update", payload)
+		}
+
 	case ipc.EventHealthPing:
 		var timestamp int64
 		json.Unmarshal(event.Data, &timestamp)

@@ -30,6 +30,10 @@ echo Building core service...
 go-winres make --in cmd/core/winres/winres.json --out cmd/core/rsrc
 go build -trimpath -ldflags "!LDFLAGS!" -o "build/bin/THRM Core.exe" ./cmd/core/
 
+REM MSI EC fan control (internal/msifan) needs the signed WinRing0 kernel driver
+echo Fetching WinRing0 driver for MSI EC fan control...
+python scripts\fetch_winring0.py "!BUILD_BIN!" || echo WARNING: WinRing0 fetch failed, MSI EC fan control will require manually placing WinRing0x64.sys next to "THRM Core.exe"
+
 REM Installer icon is still file-based; system notification icon is now embedded in THRM Core.exe
 if not exist "build\windows\icon.ico" (
     echo WARNING: build\windows\icon.ico not found, executable/installer icon may be incorrect
