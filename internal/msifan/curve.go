@@ -11,8 +11,9 @@ type Curve struct {
 }
 
 // Vector 16 HX A14VHG 预设曲线。阈值沿用机型默认配置；
-// Silent/Default 的速度点来自社区验证配置，Aggressive 为手动加强档
-//（上限 120，低于 EC 满速 150，留给 Cooler Boost）。
+// Silent/Default 的速度点来自社区验证配置，Aggressive 为手动加强档，
+// 高温段直达 EC 满速 150（笔记本风扇物理最高约 6000+ RPM），使正常联动
+// 在高负载下即可跑满，不必依赖 Cooler Boost。
 var (
 	// CPU 风扇阈值（所有 CPU 预设共用）
 	cpuTup   = [6]byte{55, 62, 69, 75, 81, 87}
@@ -23,11 +24,11 @@ var (
 
 	CpuSilent     = Curve{Speeds: [7]byte{0, 0, 20, 30, 75, 89, 103}, Tup: cpuTup, Tdown: cpuTdown}
 	CpuDefault    = Curve{Speeds: [7]byte{0, 40, 48, 60, 75, 89, 103}, Tup: cpuTup, Tdown: cpuTdown}
-	CpuAggressive = Curve{Speeds: [7]byte{0, 48, 58, 72, 88, 104, 120}, Tup: cpuTup, Tdown: cpuTdown}
+	CpuAggressive = Curve{Speeds: [7]byte{0, 55, 68, 85, 105, 128, 150}, Tup: cpuTup, Tdown: cpuTdown}
 
 	GpuSilent     = Curve{Speeds: [7]byte{0, 0, 20, 25, 82, 93, 104}, Tup: gpuTup, Tdown: gpuTdown}
 	GpuDefault    = Curve{Speeds: [7]byte{0, 48, 60, 70, 82, 93, 104}, Tup: gpuTup, Tdown: gpuTdown}
-	GpuAggressive = Curve{Speeds: [7]byte{0, 55, 68, 80, 94, 106, 120}, Tup: gpuTup, Tdown: gpuTdown}
+	GpuAggressive = Curve{Speeds: [7]byte{0, 60, 75, 92, 112, 132, 150}, Tup: gpuTup, Tdown: gpuTdown}
 )
 
 // safetyTailPoints 曲线尾部受保护的点数：最高温的 2 个速度点永远不允许

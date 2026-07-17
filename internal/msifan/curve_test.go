@@ -25,9 +25,10 @@ func TestBlendEndpoints(t *testing.T) {
 
 func TestBlendMidpoint(t *testing.T) {
 	got := Blend(CpuSilent, CpuAggressive, 0.5)
-	// Speeds[3]: silent=30, aggressive=72 → 51
-	if got.Speeds[3] != 51 {
-		t.Fatalf("Speeds[3] = %d, want 51", got.Speeds[3])
+	// 中点 = 两端速度点的算术平均（四舍五入），随预设值自动推导
+	want := byte((float64(CpuSilent.Speeds[3])+float64(CpuAggressive.Speeds[3]))/2 + 0.5)
+	if got.Speeds[3] != want {
+		t.Fatalf("Speeds[3] = %d, want %d", got.Speeds[3], want)
 	}
 	if got.Tup != cpuTup {
 		t.Fatal("插值必须保留 a 的阈值")
