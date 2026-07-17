@@ -236,10 +236,14 @@ func (a *CoreApp) msiEcTickLocked(temp types.TemperatureData, coolerConnected bo
 	}
 
 	if out.Panic {
-		return types.ManualGearMaxRPM
+		return coolerRealtimeMaxRPM
 	}
 	return -1
 }
+
+// coolerRealtimeMaxRPM 散热器实时模式标准接口（device.SetFanSpeed）接受的
+// 最大转速；超过该值会被直接拒绝而非钳制，panic 直通必须用此上限。
+const coolerRealtimeMaxRPM = 4000
 
 // GetMsiEcStatus ReqGetMsiEcStatus 处理函数。
 func (a *CoreApp) GetMsiEcStatus() msiEcStatusPayload {
