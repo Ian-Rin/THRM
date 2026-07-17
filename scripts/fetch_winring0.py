@@ -37,7 +37,7 @@ def extract_winring0(dll: bytes) -> bytes:
         machine = int.from_bytes(out[pe + 4 : pe + 6], "little")
         if machine == 0x8664:  # AMD64
             return out
-    raise RuntimeError("未在 DLL 中找到 x64 WinRing0 驱动资源")
+    raise RuntimeError("x64 WinRing0 driver resource not found in DLL")
 
 
 def verify_signed(drv: bytes) -> None:
@@ -45,7 +45,7 @@ def verify_signed(drv: bytes) -> None:
     dd = pe + 0x18 + 0x70  # PE32+ 数据目录
     sec_len = int.from_bytes(drv[dd + 4 * 8 + 4 : dd + 4 * 8 + 8], "little")
     if sec_len == 0 or b"GlobalSign" not in drv:
-        raise RuntimeError("驱动缺少数字签名，拒绝输出")
+        raise RuntimeError("driver is not digitally signed; refusing to output")
 
 
 def main() -> None:
@@ -53,7 +53,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / "WinRing0x64.sys"
 
-    print(f"下载 {NUGET_URL} ...")
+    print(f"Downloading {NUGET_URL} ...")
     with urllib.request.urlopen(NUGET_URL) as resp:
         pkg = resp.read()
     with zipfile.ZipFile(io.BytesIO(pkg)) as zf:
@@ -63,7 +63,7 @@ def main() -> None:
     drv = extract_winring0(dll)
     verify_signed(drv)
     target.write_bytes(drv)
-    print(f"OK: {target} ({len(drv)} 字节，GlobalSign 签名)")
+    print(f"OK: {target} ({len(drv)} bytes, GlobalSign-signed)")
 
 
 if __name__ == "__main__":
