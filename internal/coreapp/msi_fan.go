@@ -19,6 +19,13 @@ import (
 // 写入 EC，由 EC 固件自主执行。panic（逼近温度极限）时开启 Cooler Boost，
 // 并在智能控温开启时要求散热器满速直通。
 
+// activeFanControlEnabled 是否有任一自动风扇控制在运行（散热器智能控温或
+// MSI EC 联动）。用于决定后台采样率：MSI 联动即使没接散热器（纯笔记本模式）
+// 也需要全速采样，否则 panic 检测与曲线响应会被 10s 空闲降频拖慢。
+func activeFanControlEnabled(cfg types.AppConfig) bool {
+	return cfg.AutoControl || (cfg.MsiEcFan.Enabled && cfg.MsiEcFan.Linked)
+}
+
 // msiEcStatusPayload ReqGetMsiEcStatus 的响应体。
 type msiEcStatusPayload struct {
 	Supported bool          `json:"supported"` // 后端已初始化成功

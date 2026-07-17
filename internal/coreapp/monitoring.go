@@ -187,7 +187,7 @@ func (a *CoreApp) startTemperatureMonitoring() {
 
 	cfg, cfgRevision := a.configManager.GetWithRevision()
 	hasClients := a.ipcServer != nil && a.ipcServer.HasClients()
-	updateInterval := effectiveTemperatureMonitorInterval(cfg.TempUpdateRate, hasClients, cfg.AutoControl)
+	updateInterval := effectiveTemperatureMonitorInterval(cfg.TempUpdateRate, hasClients, activeFanControlEnabled(cfg))
 
 	// 温度采样使用 EMA 平滑。
 	sampleCount := max(cfg.TempSampleCount, 1)
@@ -271,7 +271,7 @@ monitorLoop:
 			// 后台空闲（无 GUI 连接且未开启智能控温）时放慢采样：此时温度读取不驱动风扇，
 			// 仅服务托盘提示与历史记录，降低采样频率可显著减少桥接传感器扫描带来的后台 CPU 占用。
 			hasClients = a.ipcServer != nil && a.ipcServer.HasClients()
-			updateInterval = effectiveTemperatureMonitorInterval(cfg.TempUpdateRate, hasClients, cfg.AutoControl)
+			updateInterval = effectiveTemperatureMonitorInterval(cfg.TempUpdateRate, hasClients, activeFanControlEnabled(cfg))
 			// GUI 断开瞬间把会话期间膨胀的堆内存归还操作系统，降低核心常驻后台时的 RSS。
 			if prevHasClients && !hasClients && now.Sub(lastMemRelease) > idleMemoryReleaseCooldown {
 				lastMemRelease = now
