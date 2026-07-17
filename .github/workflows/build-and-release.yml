@@ -431,6 +431,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # 未配置 DeepSeek 密钥（如 fork）时跳过 AI 发布说明，避免 401 噪音；
+      # 下游会自动回退到本地生成的保守版发布说明。
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
     steps:
       - name: Checkout
@@ -698,6 +702,7 @@ jobs:
 
       - name: Generate AI release notes
         id: ai_release_notes
+        if: ${{ env.DEEPSEEK_API_KEY != '' }}
         continue-on-error: true
         uses: actions/ai-inference@v2
         with:
