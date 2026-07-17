@@ -69,6 +69,10 @@ const (
 	ReqImportFanCurveProfiles   RequestType = "ImportFanCurveProfiles"
 	ReqResetLearnedOffsets      RequestType = "ResetLearnedOffsets"
 
+	// MSI EC 风扇（笔记本直控/联动）
+	ReqGetMsiEcStatus    RequestType = "GetMsiEcStatus"
+	ReqSetMsiEcFullBlast RequestType = "SetMsiEcFullBlast"
+
 	// 控制相关
 	ReqSetAutoControl    RequestType = "SetAutoControl"
 	ReqSetManualGear     RequestType = "SetManualGear"
@@ -161,6 +165,7 @@ const (
 	EventHotkeyTriggered          = "hotkey-triggered"
 	EventLegionPowerModeUpdate    = "legion-power-mode-update"
 	EventLegionFnQSupportUpdate   = "legion-fnq-support-update"
+	EventMsiEcSupportUpdate       = "msi-ec-support-update"
 	EventHealthPing               = "health-ping"
 	EventHeartbeat                = "heartbeat"
 )

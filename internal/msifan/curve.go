@@ -52,6 +52,15 @@ func Blend(a, b Curve, t float64) Curve {
 	return out
 }
 
+// BlendTri 三段混合：b∈[0,0.5] 在 silent→def 间插值，b∈[0.5,1] 在
+// def→aggr 间插值。配合 unifiedfan 的混合系数使用。
+func BlendTri(silent, def, aggr Curve, b float64) Curve {
+	if b <= 0.5 {
+		return Blend(silent, def, b*2)
+	}
+	return Blend(def, aggr, (b-0.5)*2)
+}
+
 // ClampToSafe 返回钳制后的曲线：所有速度点限制在 [0, maxUnits]，
 // 且尾部 safetyTailPoints 个点不低于 floor 对应点。
 func ClampToSafe(c, floor Curve, maxUnits int) Curve {

@@ -83,6 +83,10 @@ func (a *CoreApp) UpdateConfig(cfg types.AppConfig) error {
 	cfg.SmartControl, _ = smartcontrol.NormalizeConfig(cfg.SmartControl, cfg.FanCurve, cfg.DebugMode)
 	storeSmartControlOffsetsForActiveProfile(&cfg)
 	cfg.LegionFnQ = types.NormalizeLegionFnQConfig(cfg.LegionFnQ)
+	// 旧版 GUI 客户端不携带 msiEcFan 字段时保留现有配置，避免整块被清零
+	if (cfg.MsiEcFan == types.MsiEcFanConfig{}) && oldCfg.MsiEcFan != (types.MsiEcFanConfig{}) {
+		cfg.MsiEcFan = oldCfg.MsiEcFan
+	}
 	if a.legionFnQSupportChecked.Load() && !a.legionFnQSupported.Load() && (cfg.LegionFnQ.Enabled || cfg.LegionFnQ.TakeOverFan) {
 		return fmt.Errorf("Lenovo Legion Fn+Q 仅支持拯救者设备")
 	}
@@ -98,6 +102,7 @@ func (a *CoreApp) UpdateConfig(cfg types.AppConfig) error {
 	a.syncManualGearLevelMemoryLocked(cfg)
 	a.applyHotkeyBindings(cfg)
 	a.applyPluginConfig(cfg)
+	a.applyMsiEcConfig(cfg.MsiEcFan)
 	return nil
 }
 

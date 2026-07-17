@@ -54,6 +54,20 @@ func (a *CoreApp) handleIPCRequest(req ipc.Request) ipc.Response {
 		}
 		return a.successResponse(true)
 
+	// MSI EC 风扇
+	case ipc.ReqGetMsiEcStatus:
+		return a.dataResponse(a.GetMsiEcStatus())
+
+	case ipc.ReqSetMsiEcFullBlast:
+		var params ipc.SetBoolParams
+		if err := json.Unmarshal(req.Data, &params); err != nil {
+			return a.errorResponse("解析参数失败: " + err.Error())
+		}
+		if err := a.SetMsiEcFullBlast(params.Enabled); err != nil {
+			return a.errorResponse(err.Error())
+		}
+		return a.successResponse(true)
+
 	case ipc.ReqSetFanCurve:
 		var curve []types.FanCurvePoint
 		if err := json.Unmarshal(req.Data, &curve); err != nil {

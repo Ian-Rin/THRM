@@ -136,6 +136,7 @@ func (a *CoreApp) Start() error {
 	if !a.legionFnQSupportChecked.Load() {
 		a.startLegionFnQSupportDetection()
 	}
+	a.startMsiEcDetection()
 
 	// 初始化系统托盘
 	a.logInfo("开始初始化系统托盘")
@@ -229,6 +230,9 @@ func (a *CoreApp) Stop() {
 	if a.pluginManager != nil {
 		a.pluginManager.StopAll()
 	}
+
+	// 恢复 MSI EC 默认曲线并卸载驱动（EC 会继续自主执行默认曲线，安全）
+	a.safeRun("msi-ec-shutdown", func() { a.shutdownMsiEc(true) })
 
 	// 停止所有监控
 	a.DisconnectDevice()

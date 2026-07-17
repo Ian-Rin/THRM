@@ -434,6 +434,13 @@ type LegionFnQSupportCache struct {
 	Supported bool `json:"supported"`
 }
 
+// MsiEcFanConfig MSI 笔记本 EC 风扇直控/联动配置（Vector 16 HX 等 gen-2 EC 机型）。
+type MsiEcFanConfig struct {
+	Enabled    bool   `json:"enabled"`    // 启用 MSI EC 后端（装载 WinRing0 驱动）
+	Linked     bool   `json:"linked"`     // 联动算法开关：关闭时仅监控显示，不写曲线
+	DriverPath string `json:"driverPath"` // WinRing0x64.sys 路径；空 = 程序目录
+}
+
 // NoiseProfilePoint 一次噪音测试中某个转速的实测噪音水平。
 // DB 为相对量（以测试中最安静点为 0 dB 的 A 计权相对噪音），不是绝对声压级。
 type NoiseProfilePoint struct {
@@ -479,6 +486,7 @@ type SmartControlConfig struct {
 type AppConfig struct {
 	LegionFnQ                LegionFnQConfig           `json:"legionFnQ"`
 	LegionFnQSupport         LegionFnQSupportCache     `json:"legionFnQSupport"`
+	MsiEcFan                 MsiEcFanConfig            `json:"msiEcFan"`
 	AutoControl              bool                      `json:"autoControl"`              // 智能变频开关
 	ManualGearToggleHotkey   string                    `json:"manualGearToggleHotkey"`   // 切换手动挡位快捷键
 	AutoControlToggleHotkey  string                    `json:"autoControlToggleHotkey"`  // 开关智能变频快捷键
@@ -572,6 +580,11 @@ func GetDefaultSmartControlConfig(curve []FanCurvePoint) SmartControlConfig {
 }
 
 // Logger 日志记录器接口
+// GetDefaultMsiEcFanConfig MSI EC 风扇联动默认配置（默认关闭，需用户显式开启）。
+func GetDefaultMsiEcFanConfig() MsiEcFanConfig {
+	return MsiEcFanConfig{Enabled: false, Linked: true, DriverPath: ""}
+}
+
 func GetDefaultLegionFnQConfig() LegionFnQConfig {
 	return LegionFnQConfig{
 		Enabled:     false,
@@ -899,5 +912,6 @@ func GetDefaultConfig(isAutoStart bool) AppConfig {
 		LightStrip:              GetDefaultLightStripConfig(),
 		LegionFnQ:               GetDefaultLegionFnQConfig(),
 		LegionFnQSupport:        LegionFnQSupportCache{},
+		MsiEcFan:                GetDefaultMsiEcFanConfig(),
 	}
 }

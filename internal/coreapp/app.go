@@ -16,11 +16,13 @@ import (
 	"github.com/TIANLI0/THRM/internal/ipc"
 	"github.com/TIANLI0/THRM/internal/laptopfan"
 	"github.com/TIANLI0/THRM/internal/logger"
+	"github.com/TIANLI0/THRM/internal/msifan"
 	"github.com/TIANLI0/THRM/internal/notifier"
 	"github.com/TIANLI0/THRM/internal/plugins"
 	"github.com/TIANLI0/THRM/internal/temperature"
 	"github.com/TIANLI0/THRM/internal/tray"
 	"github.com/TIANLI0/THRM/internal/types"
+	"github.com/TIANLI0/THRM/internal/unifiedfan"
 )
 
 // CoreApp 核心应用结构
@@ -40,6 +42,13 @@ type CoreApp struct {
 	pluginManager    *plugins.Manager
 	logger           *logger.CustomLogger
 	ipcServer        *ipc.Server
+
+	msiFan       msifan.Controller
+	msiAlloc     *unifiedfan.Allocator
+	msiFanReady  atomic.Bool
+	msiMu        sync.Mutex
+	msiFullBlast bool
+	msiLastTick  time.Time
 
 	isConnected             bool
 	monitoringTemp          atomic.Bool
@@ -139,6 +148,8 @@ func NewCoreApp(debugMode, isAutoStart bool, iconData []byte) *CoreApp {
 		tempReader:         tempReader,
 		tempHistory:        tempHistory,
 		laptopFanReader:    laptopfan.NewReader(customLogger),
+		msiFan:             msifan.New(customLogger),
+		msiAlloc:           unifiedfan.New(unifiedfan.DefaultConfig()),
 		currentTemp:        types.TemperatureData{BridgeOk: true},
 		configManager:      configMgr,
 		trayManager:        trayMgr,

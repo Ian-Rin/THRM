@@ -293,6 +293,13 @@ monitorLoop:
 				temp.CPUFanRPM = laptopSpeeds.CPUFanRPM
 				temp.GPUFanRPM = laptopSpeeds.GPUFanRPM
 			}
+			// MSI EC 后端可用时用 EC 读数补充（WMI 后端不支持 MSI 机型）。
+			if temp.CPUFanRPM == 0 && temp.GPUFanRPM == 0 {
+				if cpuRPM, gpuRPM, ok := a.msiEcRPMs(); ok {
+					temp.CPUFanRPM = cpuRPM
+					temp.GPUFanRPM = gpuRPM
+				}
+			}
 			laptopFanRPM := max(temp.CPUFanRPM, temp.GPUFanRPM)
 			laptopFanPeakRPM = smartcontrol.DecayLaptopFanPeak(laptopFanPeakRPM, laptopFanRPM)
 			if temp.ControlTemp <= 0 {
@@ -559,6 +566,9 @@ monitorLoop:
 				lastControlTemp = -1
 				thermalPredictor.Reset()
 			}
+
+			// MSI EC 统一热管理联动（不依赖散热器是否连接/AutoControl 状态）
+			a.runMsiEcTick(temp, cfg)
 
 			timer.Reset(updateInterval)
 		}
