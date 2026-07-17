@@ -64,6 +64,7 @@ export interface PowerSensor {
 export interface AppConfig {
   legionFnQ?: LegionFnQConfig;
   legionFnQSupport?: LegionFnQSupportCache;
+  msiEcFan?: MsiEcFanConfig;
   autoControl: boolean;         // 智能变频开关
   curveProfileToggleHotkey?: string; // 切换曲线方案快捷键
   fanCurve: FanCurvePoint[];   // 风扇曲线
@@ -168,6 +169,38 @@ export interface LegionFnQConfig {
 export interface LegionFnQSupportCache {
   checked: boolean;
   supported: boolean;
+}
+
+// MSI 笔记本 EC 风扇直控/联动配置（Vector 16 HX 等 gen-2 EC 机型）
+export interface MsiEcFanConfig {
+  enabled: boolean;    // 启用 MSI EC 后端（装载 WinRing0 驱动）
+  linked: boolean;     // 统一联动：关闭时仅监控显示，不写曲线
+  driverPath: string;  // WinRing0x64.sys 路径；空 = 程序目录
+}
+
+// GetMsiEcStatus 返回的 MSI EC 风扇后端状态
+export interface MsiEcStatus {
+  supported: boolean;
+  enabled: boolean;
+  linked: boolean;
+  panic: boolean;
+  status: {
+    available: boolean;
+    firmVer: string;
+    cpuTemp: number;
+    gpuTemp: number;
+    cpuRpm: number;
+    gpuRpm: number;
+    cpuSpeed: number;
+    gpuSpeed: number;
+    fullBlast: boolean;
+  };
+}
+
+// msi-ec-support-update 事件负载
+export interface MsiEcSupportUpdatePayload {
+  supported: boolean;
+  error: string;
 }
 
 export interface LegionPowerModePayload {

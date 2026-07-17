@@ -74,6 +74,10 @@ export function GetFanCurveProfiles() {
   return window['go']['main']['App']['GetFanCurveProfiles']();
 }
 
+export function GetMsiEcStatus() {
+  return window['go']['main']['App']['GetMsiEcStatus']();
+}
+
 export function GetTemperature() {
   return window['go']['main']['App']['GetTemperature']();
 }
@@ -200,6 +204,10 @@ export function SetLightStrip(arg1) {
 
 export function SetManualGear(arg1, arg2) {
   return window['go']['main']['App']['SetManualGear'](arg1, arg2);
+}
+
+export function SetMsiEcFullBlast(arg1) {
+  return window['go']['main']['App']['SetMsiEcFullBlast'](arg1);
 }
 
 export function SetPowerOnStart(arg1) {

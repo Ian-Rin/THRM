@@ -25,11 +25,13 @@ import {
   X,
   RotateCw,
   FileArchive,
+  Fan,
+  Snowflake,
 } from 'lucide-react';
 import { apiService } from '../services/api';
-import { types } from '../../../wailsjs/go/models';
+import { types, guiapp } from '../../../wailsjs/go/models';
 import { toast } from 'sonner';
-import { DebugInfo, type DeviceDebugCommandResult, type DeviceSettings, type ThemeMeta } from '../types/app';
+import { DebugInfo, type DeviceDebugCommandResult, type DeviceSettings, type MsiEcSupportUpdatePayload, type ThemeMeta } from '../types/app';
 import { type AppLocale, useLocale } from '../lib/i18n';
 import { getManualGearLabel, getManualLevelLabel } from '../lib/manualGearPresets';
 import FanCurveProfileSelect from './FanCurveProfileSelect';
@@ -241,6 +243,23 @@ function normalizeLegionFnQConfig(raw: any) {
     enabled: !!raw?.enabled,
     takeOverFan: !!raw?.takeOverFan,
     modeMapping: mapping,
+  };
+}
+
+function getDefaultMsiEcFanConfig() {
+  return {
+    enabled: false,
+    linked: true,
+    driverPath: '',
+  };
+}
+
+function normalizeMsiEcFanConfig(raw: any) {
+  const defaults = getDefaultMsiEcFanConfig();
+  return {
+    enabled: !!raw?.enabled,
+    linked: raw?.linked !== undefined ? !!raw.linked : defaults.linked,
+    driverPath: typeof raw?.driverPath === 'string' ? raw.driverPath : defaults.driverPath,
   };
 }
 
@@ -458,6 +477,8 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
   const [recordingTarget, setRecordingTarget] = useState<'manual' | 'auto' | 'curve' | null>(null);
   const [curveProfiles, setCurveProfiles] = useState<CurveProfile[]>([]);
   const [curveProfileLoading, setCurveProfileLoading] = useState(false);
+  const [msiEcStatus, setMsiEcStatus] = useState<guiapp.MsiEcStatus | null>(null);
+  const [coolerBoostLoading, setCoolerBoostLoading] = useState(false);
   const [temperatureHistoryEnabled, setTemperatureHistoryEnabled] = useState(false);
 
   const activeCurveProfileId = ((config as any).activeFanCurveProfileId || '') as string;
@@ -503,6 +524,7 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     return effectiveGpuSensors.some((sensor) => sensor.key === configured) ? configured : 'auto';
   }, [config, effectiveGpuSensors]);
   const legionFnQConfig = useMemo(() => normalizeLegionFnQConfig((config as any).legionFnQ), [config]);
+  const msiEcConfig = useMemo(() => normalizeMsiEcFanConfig((config as any).msiEcFan), [config]);
   const legionPowerModes = useMemo(
     () => LEGION_POWER_MODE_VALUES.map((value) => ({ value, label: t(`controlPanel.options.legionPowerModes.${value}`) })),
     [locale, t],
@@ -884,6 +906,41 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     });
   }, [legionFnQConfig, updateLegionFnQConfig]);
 
+  const updateMsiEcConfig = useCallback(async (patch: Partial<{ enabled: boolean; linked: boolean }>) => {
+    setLoading('msiEcFan', true);
+    try {
+      const nextMsiEcFan = normalizeMsiEcFanConfig({
+        ...msiEcConfig,
+        ...patch,
+      });
+      const newCfg = types.AppConfig.createFrom({
+        ...config,
+        msiEcFan: nextMsiEcFan,
+      });
+      await apiService.updateConfig(newCfg);
+      onConfigChange(newCfg);
+      if (!nextMsiEcFan.enabled) {
+        setMsiEcStatus(null);
+      }
+    } catch (e) {
+      toast.error(t('controlPanel.msiEcFan.toasts.saveFailed', { error: getErrorMessage(e) }));
+    } finally {
+      setLoading('msiEcFan', false);
+    }
+  }, [config, msiEcConfig, onConfigChange, t]);
+
+  const handleMsiEcFullBlastToggle = useCallback(async (enabled: boolean) => {
+    setCoolerBoostLoading(true);
+    try {
+      await apiService.setMsiEcFullBlast(enabled);
+      setMsiEcStatus((prev) => (prev ? { ...prev, status: { ...prev.status, fullBlast: enabled } } : prev));
+    } catch (e) {
+      toast.error(t('controlPanel.msiEcFan.toasts.coolerBoostFailed', { error: getErrorMessage(e) }));
+    } finally {
+      setCoolerBoostLoading(false);
+    }
+  }, [t]);
+
   const loadCurveProfiles = useCallback(async () => {
     try {
       const payload = await apiService.getFanCurveProfiles();
@@ -940,6 +997,38 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
     }, 60000);
     return () => window.clearInterval(i);
   }, []);
+
+  const fetchMsiEcStatus = useCallback(async () => {
+    try {
+      const status = await apiService.getMsiEcStatus();
+      setMsiEcStatus(status);
+    } catch {
+      /* 后端未就绪时静默忽略，等待下一次轮询或支持状态事件 */
+    }
+  }, []);
+
+  // MSI EC 风扇状态：仅在启用时轮询，避免未装机型无意义调用后端。
+  useEffect(() => {
+    if (!msiEcConfig.enabled) {
+      return;
+    }
+    fetchMsiEcStatus();
+    const i = window.setInterval(fetchMsiEcStatus, 3000);
+    return () => window.clearInterval(i);
+  }, [msiEcConfig.enabled, fetchMsiEcStatus]);
+
+  // 支持状态变化（EC 后端就绪/失败）即时更新，不等待下一次轮询。
+  useEffect(() => {
+    return apiService.onMsiEcSupportUpdate((payload: MsiEcSupportUpdatePayload) => {
+      if (payload?.error) {
+        toast.error(t('controlPanel.msiEcFan.toasts.supportError', { error: payload.error }));
+      }
+      if (msiEcConfig.enabled) {
+        fetchMsiEcStatus();
+      }
+    });
+  }, [t, msiEcConfig.enabled, fetchMsiEcStatus]);
+
   useEffect(() => { loadCurveProfiles(); }, [loadCurveProfiles]);
   useEffect(() => { setLightStripConfig(normalizeLightStripConfig(config)); }, [config]);
   useEffect(() => {
@@ -1620,6 +1709,121 @@ export default function ControlPanel({ config, onConfigChange, isConnected, fanD
             </div>
           </div>
         </Section>}
+
+        <Section title={t('controlPanel.msiEcFan.sectionTitle')} icon={Fan}>
+          <SettingRow
+            icon={<Fan className={clsx('h-4 w-4', msiEcConfig.enabled ? 'text-primary' : '')} />}
+            title={t('controlPanel.msiEcFan.enableTitle')}
+            description={t('controlPanel.msiEcFan.enableDescription')}
+          >
+            <ToggleSwitch
+              enabled={msiEcConfig.enabled}
+              onChange={(enabled) => updateMsiEcConfig({ enabled })}
+              loading={loadingStates.msiEcFan}
+              size="sm"
+            />
+          </SettingRow>
+
+          <SettingRow
+            icon={<Flame className={clsx('h-4 w-4', msiEcConfig.linked ? 'text-orange-500' : '')} />}
+            title={t('controlPanel.msiEcFan.linkedTitle')}
+            description={msiEcConfig.linked
+              ? t('controlPanel.msiEcFan.linkedDescriptionOn')
+              : t('controlPanel.msiEcFan.linkedDescriptionOff')}
+            disabled={!msiEcConfig.enabled}
+          >
+            <ToggleSwitch
+              enabled={msiEcConfig.linked}
+              onChange={(linked) => updateMsiEcConfig({ linked })}
+              disabled={!msiEcConfig.enabled}
+              loading={loadingStates.msiEcFan}
+              size="sm"
+              color="orange"
+            />
+          </SettingRow>
+
+          {msiEcConfig.enabled ? (
+            <div className="space-y-3 px-5 py-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">{t('controlPanel.msiEcFan.status.readyLabel')}</span>
+                <span
+                  className={clsx(
+                    'inline-flex items-center gap-1.5 font-medium',
+                    msiEcStatus?.supported ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+                  )}
+                >
+                  {msiEcStatus?.supported ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <TriangleAlert className="h-3.5 w-3.5" />
+                  )}
+                  {msiEcStatus?.supported
+                    ? t('controlPanel.msiEcFan.status.ready')
+                    : t('controlPanel.msiEcFan.status.notReady')}
+                </span>
+              </div>
+
+              {msiEcStatus?.panic && (
+                <div className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-600 dark:text-red-400">
+                  <TriangleAlert className="h-4 w-4 shrink-0" />
+                  {t('controlPanel.msiEcFan.status.panicWarning')}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-border/70 bg-background/45 px-4 py-3 text-sm sm:grid-cols-4">
+                <div>
+                  <div className="text-xs text-muted-foreground">{t('controlPanel.msiEcFan.status.firmware')}</div>
+                  <div className="font-medium text-foreground">{msiEcStatus?.status?.firmVer || '--'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">{t('controlPanel.msiEcFan.status.cpuFan')}</div>
+                  <div className="font-medium text-foreground">
+                    {msiEcStatus?.status?.cpuRpm ? `${msiEcStatus.status.cpuRpm} RPM` : '--'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">{t('controlPanel.msiEcFan.status.gpuFan')}</div>
+                  <div className="font-medium text-foreground">
+                    {msiEcStatus?.status?.gpuRpm ? `${msiEcStatus.status.gpuRpm} RPM` : '--'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">{t('controlPanel.msiEcFan.status.ecTemp')}</div>
+                  <div className="font-medium text-foreground">
+                    {msiEcStatus?.status
+                      ? `${msiEcStatus.status.cpuTemp}°C / ${msiEcStatus.status.gpuTemp}°C`
+                      : '--'}
+                  </div>
+                </div>
+              </div>
+
+              {!msiEcConfig.linked && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/45 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">{t('controlPanel.msiEcFan.coolerBoost.title')}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{t('controlPanel.msiEcFan.coolerBoost.description')}</div>
+                  </div>
+                  <Button
+                    variant={msiEcStatus?.status?.fullBlast ? 'primary' : 'outline'}
+                    size="sm"
+                    icon={<Snowflake className="h-4 w-4" />}
+                    loading={coolerBoostLoading}
+                    disabled={!msiEcStatus?.supported}
+                    onClick={() => handleMsiEcFullBlastToggle(!msiEcStatus?.status?.fullBlast)}
+                  >
+                    {msiEcStatus?.status?.fullBlast
+                      ? t('controlPanel.msiEcFan.coolerBoost.on')
+                      : t('controlPanel.msiEcFan.coolerBoost.off')}
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="px-5 py-4 text-xs leading-relaxed text-muted-foreground">
+              {t('controlPanel.msiEcFan.disabledHint')}
+            </div>
+          )}
+        </Section>
 
         {/* ═══════════ 4. 系统设置 ═══════════ */}
         <Section title={t('controlPanel.system.sectionTitle')} icon={Monitor}>

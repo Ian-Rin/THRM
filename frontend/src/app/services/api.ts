@@ -26,12 +26,15 @@ import {
   GetDebugInfo,
   SetDebugMode,
   UpdateGuiResponseTime,
-  SetCustomSpeed
+  SetCustomSpeed,
+  GetMsiEcStatus,
+  SetMsiEcFullBlast
   // CheckWindowsAutoStart,
   // SetWindowsAutoStart
 } from '../../../wailsjs/go/main/App';
 
 import { types } from '../../../wailsjs/go/models';
+import { guiapp } from '../../../wailsjs/go/models';
 
 import type {
   DeviceInfo,
@@ -41,6 +44,7 @@ import type {
   DebugInfo,
   LegionFnQSupportPayload,
   LegionPowerModePayload,
+  MsiEcSupportUpdatePayload,
   ThemeMeta,
 } from '../types/app';
 
@@ -176,6 +180,16 @@ class ApiService {
     return await SetLightStrip(config);
   }
 
+  // MSI 笔记本 EC 风扇（gen-2 EC 机型，如 Vector 16 HX）
+  async getMsiEcStatus(): Promise<guiapp.MsiEcStatus> {
+    return await GetMsiEcStatus();
+  }
+
+  // 纯监控模式下手动切换 Cooler Boost；联动模式下后端会报错
+  async setMsiEcFullBlast(enabled: boolean): Promise<void> {
+    return await SetMsiEcFullBlast(enabled);
+  }
+
   // Windows自启动相关
   async checkWindowsAutoStart(): Promise<boolean> {
     // 临时使用window对象调用，等Wails生成绑定后更新
@@ -284,6 +298,10 @@ class ApiService {
 
   onLegionFnQSupportUpdate(callback: (payload: LegionFnQSupportPayload) => void): () => void {
     return EventsOn('legion-fnq-support-update', callback);
+  }
+
+  onMsiEcSupportUpdate(callback: (payload: MsiEcSupportUpdatePayload) => void): () => void {
+    return EventsOn('msi-ec-support-update', callback);
   }
 
   async getDebugInfo(): Promise<DebugInfo> {

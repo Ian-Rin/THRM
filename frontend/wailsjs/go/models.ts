@@ -20,6 +20,36 @@ export namespace guiapp {
 	        this.maximised = source["maximised"];
 	    }
 	}
+	export class MsiEcStatus {
+	    supported: boolean;
+	    enabled: boolean;
+	    linked: boolean;
+	    panic: boolean;
+	    status: {
+	        available: boolean;
+	        firmVer: string;
+	        cpuTemp: number;
+	        gpuTemp: number;
+	        cpuRpm: number;
+	        gpuRpm: number;
+	        cpuSpeed: number;
+	        gpuSpeed: number;
+	        fullBlast: boolean;
+	    };
+
+	    static createFrom(source: any = {}) {
+	        return new MsiEcStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.enabled = source["enabled"];
+	        this.linked = source["linked"];
+	        this.panic = source["panic"];
+	        this.status = source["status"];
+	    }
+	}
 
 }
 
@@ -394,9 +424,26 @@ export namespace types {
 		    return a;
 		}
 	}
+	export class MsiEcFanConfig {
+	    enabled: boolean;
+	    linked: boolean;
+	    driverPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MsiEcFanConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.linked = source["linked"];
+	        this.driverPath = source["driverPath"];
+	    }
+	}
 	export class AppConfig {
 	    legionFnQ: LegionFnQConfig;
 	    legionFnQSupport: LegionFnQSupportCache;
+	    msiEcFan: MsiEcFanConfig;
 	    autoControl: boolean;
 	    manualGearToggleHotkey: string;
 	    autoControlToggleHotkey: string;
@@ -444,6 +491,7 @@ export namespace types {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.legionFnQ = this.convertValues(source["legionFnQ"], LegionFnQConfig);
 	        this.legionFnQSupport = this.convertValues(source["legionFnQSupport"], LegionFnQSupportCache);
+	        this.msiEcFan = this.convertValues(source["msiEcFan"], MsiEcFanConfig);
 	        this.autoControl = source["autoControl"];
 	        this.manualGearToggleHotkey = source["manualGearToggleHotkey"];
 	        this.autoControlToggleHotkey = source["autoControlToggleHotkey"];

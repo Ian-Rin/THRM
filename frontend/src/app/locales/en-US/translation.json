@@ -737,6 +737,36 @@
         "saveFailed": "Failed to save Fn+Q plugin settings: {{error}}"
       }
     },
+    "msiEcFan": {
+      "sectionTitle": "MSI laptop fan",
+      "enableTitle": "Enable MSI EC control",
+      "enableDescription": "Take over the laptop fans on MSI gen-2 EC models (e.g. Vector 16 HX). Requires the WinRing0 driver.",
+      "linkedTitle": "Unified control",
+      "linkedDescriptionOn": "Cooler ramps first, laptop fan curves blend automatically, and overheat panic passes straight through to the cooler.",
+      "linkedDescriptionOff": "Monitor-only: shows laptop fan RPM and temperature without writing curves; Cooler Boost can be toggled manually.",
+      "disabledHint": "Only supported on MSI gen-2 EC models (e.g. Vector 16 HX) and requires the WinRing0 driver. Once enabled you can see firmware version, fan RPM, and EC temperatures.",
+      "status": {
+        "readyLabel": "Backend status",
+        "ready": "Ready",
+        "notReady": "Not ready",
+        "panicWarning": "Overheat panic: Cooler Boost enabled automatically",
+        "firmware": "EC firmware",
+        "cpuFan": "CPU fan",
+        "gpuFan": "GPU fan",
+        "ecTemp": "EC temp (CPU / GPU)"
+      },
+      "coolerBoost": {
+        "title": "Cooler Boost",
+        "description": "Manually toggle full-speed blast in monitor-only mode; does not affect the cooler.",
+        "on": "On",
+        "off": "Off"
+      },
+      "toasts": {
+        "saveFailed": "Failed to save MSI EC fan settings: {{error}}",
+        "coolerBoostFailed": "Failed to toggle Cooler Boost: {{error}}",
+        "supportError": "MSI EC backend failed to initialize: {{error}}"
+      }
+    },
     "system": {
       "sectionTitle": "System settings",
       "themeTitle": "Theme",

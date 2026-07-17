@@ -41,6 +41,8 @@ export function GetFanCurve():Promise<Array<types.FanCurvePoint>>;
 
 export function GetFanCurveProfiles():Promise<types.FanCurveProfilesPayload>;
 
+export function GetMsiEcStatus():Promise<guiapp.MsiEcStatus>;
+
 export function GetTemperature():Promise<types.TemperatureData>;
 
 export function GetTemperatureHistory():Promise<types.TemperatureHistoryPayload>;
@@ -104,6 +106,8 @@ export function SetGearLight(arg1:boolean):Promise<boolean>;
 export function SetLightStrip(arg1:types.LightStripConfig):Promise<void>;
 
 export function SetManualGear(arg1:string,arg2:string):Promise<boolean>;
+
+export function SetMsiEcFullBlast(arg1:boolean):Promise<void>;
 
 export function SetPowerOnStart(arg1:boolean):Promise<boolean>;
 

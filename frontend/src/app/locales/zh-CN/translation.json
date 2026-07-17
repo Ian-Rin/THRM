@@ -737,6 +737,36 @@
         "saveFailed": "保存 Fn+Q 插件设置失败: {{error}}"
       }
     },
+    "msiEcFan": {
+      "sectionTitle": "MSI 笔记本风扇",
+      "enableTitle": "启用 MSI EC 控制",
+      "enableDescription": "接管 MSI gen-2 EC 机型（如 Vector 16 HX）的笔记本风扇，需要 WinRing0 驱动。",
+      "linkedTitle": "统一联动",
+      "linkedDescriptionOn": "散热器先出力、笔记本风扇曲线自动混合、过热 panic 直通散热器满速。",
+      "linkedDescriptionOff": "仅监控笔记本风扇转速与温度，不写入曲线，可手动切换 Cooler Boost。",
+      "disabledHint": "仅支持 MSI gen-2 EC 机型（如 Vector 16 HX），需要 WinRing0 驱动。启用后可查看固件版本、风扇转速与 EC 温度。",
+      "status": {
+        "readyLabel": "后端状态",
+        "ready": "已就绪",
+        "notReady": "未就绪",
+        "panicWarning": "过热 panic：已自动开启 Cooler Boost",
+        "firmware": "EC 固件版本",
+        "cpuFan": "CPU 风扇",
+        "gpuFan": "GPU 风扇",
+        "ecTemp": "EC 温度 (CPU / GPU)"
+      },
+      "coolerBoost": {
+        "title": "Cooler Boost",
+        "description": "纯监控模式下手动切换满速直吹，不影响散热器。",
+        "on": "已开启",
+        "off": "已关闭"
+      },
+      "toasts": {
+        "saveFailed": "保存 MSI EC 风扇设置失败: {{error}}",
+        "coolerBoostFailed": "切换 Cooler Boost 失败: {{error}}",
+        "supportError": "MSI EC 后端初始化失败: {{error}}"
+      }
+    },
     "system": {
       "sectionTitle": "系统设置",
       "themeTitle": "界面主题",

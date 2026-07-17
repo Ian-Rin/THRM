@@ -736,6 +736,36 @@
         "saveFailed": "Fn+Q プラグイン設定の保存に失敗しました: {{error}}"
       }
     },
+    "msiEcFan": {
+      "sectionTitle": "MSI ノート PC ファン",
+      "enableTitle": "MSI EC 制御を有効化",
+      "enableDescription": "MSI 第2世代 EC 機種（Vector 16 HX など）のノート PC ファンを制御します。WinRing0 ドライバーが必要です。",
+      "linkedTitle": "統合連携",
+      "linkedDescriptionOn": "クーラーが先に出力し、ノート PC ファンカーブを自動でブレンドし、過熱 panic 時はクーラーに直結します。",
+      "linkedDescriptionOff": "モニタリングのみ：ファン回転数と温度を表示するだけでカーブは書き込まず、Cooler Boost を手動切替できます。",
+      "disabledHint": "MSI 第2世代 EC 機種（Vector 16 HX など）のみ対応し、WinRing0 ドライバーが必要です。有効化するとファームウェアバージョン、ファン回転数、EC 温度を確認できます。",
+      "status": {
+        "readyLabel": "バックエンド状態",
+        "ready": "準備完了",
+        "notReady": "未準備",
+        "panicWarning": "過熱 panic：Cooler Boost を自動的に有効化しました",
+        "firmware": "EC ファームウェア",
+        "cpuFan": "CPU ファン",
+        "gpuFan": "GPU ファン",
+        "ecTemp": "EC 温度 (CPU / GPU)"
+      },
+      "coolerBoost": {
+        "title": "Cooler Boost",
+        "description": "モニタリングのみモードで全開送風を手動切替します。クーラーには影響しません。",
+        "on": "オン",
+        "off": "オフ"
+      },
+      "toasts": {
+        "saveFailed": "MSI EC ファン設定の保存に失敗しました: {{error}}",
+        "coolerBoostFailed": "Cooler Boost の切替に失敗しました: {{error}}",
+        "supportError": "MSI EC バックエンドの初期化に失敗しました: {{error}}"
+      }
+    },
     "system": {
       "sectionTitle": "システム設定",
       "themeTitle": "テーマ",
