@@ -927,10 +927,10 @@ Section "$(THRM_STR_SECTION_MAIN)" SEC_MAIN
     nsExec::ExecToStack '"$SYSDIR\sc.exe" stop WinRing0_1_2_0'
     nsExec::ExecToStack '"$SYSDIR\sc.exe" delete WinRing0_1_2_0'
     # 驱动是固定不变的文件：若仍被内核占用无法覆盖，用 SetOverwrite try 跳过而
-    # 不中止安装（已存在的同一份驱动照常可用），并用 /REBOOTOK 安排重启后替换。
-    # 这样即便 sc 停不掉服务，安装也不会报“无法打开要写入的文件”。
+    # 不中止安装（已存在的同一份驱动照常可用）。这样即便 sc 停不掉服务，安装
+    # 也不会报“无法打开要写入的文件”。（注：/REBOOTOK 不是 File 命令的合法参数）
     SetOverwrite try
-    File /nonfatal /REBOOTOK "..\..\bin\WinRing0x64.sys"
+    File /nonfatal "..\..\bin\WinRing0x64.sys"
     SetOverwrite on
 
     # Copy bridge directory and its contents
