@@ -38,6 +38,11 @@ type Config struct {
 	// 混合系数量化步长（减少 EC 曲线重写次数）
 	BlendQuantum float64
 
+	// CoolingBias 散热/噪音权重，0..1。0=完全按原噪音优先策略；越大越偏向
+	// 散热：抬高需求曲线（更低温度就把笔记本风扇拉高）、削减散热器减负额度、
+	// 提前介入拐点。0.7 ≈ 散热 7 : 噪音 3。
+	CoolingBias float64
+
 	// panic 直通（Cooler Boost + 散热器满速），带迟滞恢复
 	CpuPanicTemp, CpuRecoverTemp float64
 	GpuPanicTemp, GpuRecoverTemp float64
@@ -54,6 +59,7 @@ func DefaultConfig() Config {
 		AssistCredit: 0.10,
 		CpuGuardTemp: 85, GpuGuardTemp: 80,
 		BlendQuantum: 0.05,
+		CoolingBias:  0.7, // 默认散热优先 7:3
 
 		CpuPanicTemp: 95, CpuRecoverTemp: 88,
 		GpuPanicTemp: 87, GpuRecoverTemp: 81,
@@ -139,9 +145,9 @@ func (a *Allocator) Tick(in Input) Output {
 		return Output{CpuBlend: 1, GpuBlend: 1, FullBlast: true, CoolerOverrideRPM: coolerMaxHint, Panic: true}
 	}
 
-	// ---- 每源需求（温度映射 + 趋势前馈）----
-	dCpu := clamp01(ramp(in.CpuTemp, c.CpuTempZero, c.CpuTempFull) + c.TrendGain*math.Max(0, a.trendCpu))
-	dGpu := clamp01(ramp(in.GpuTemp, c.GpuTempZero, c.GpuTempFull) + c.TrendGain*math.Max(0, a.trendGpu))
+	// ---- 每源需求（温度映射 + 趋势前馈 + 散热优先抬升）----
+	dCpu := coolingBoost(clamp01(ramp(in.CpuTemp, c.CpuTempZero, c.CpuTempFull)+c.TrendGain*math.Max(0, a.trendCpu)), c.CoolingBias)
+	dGpu := coolingBoost(clamp01(ramp(in.GpuTemp, c.GpuTempZero, c.GpuTempFull)+c.TrendGain*math.Max(0, a.trendGpu)), c.CoolingBias)
 
 	ratio := 0.0
 	if in.CoolerConnected {
@@ -157,16 +163,28 @@ func (a *Allocator) Tick(in Input) Output {
 // coolerMaxHint panic 时散热器直通转速的占位值；调用方应换成设备实际满速。
 const coolerMaxHint = 1 << 30
 
+// coolingBoost 按散热权重把需求向上抬（凸函数）：bias=0 原样返回，bias 越大
+// 中低温段需求越高，笔记本风扇更早、更高地介入。bias=0.7 时指数≈0.58。
+func coolingBoost(d, bias float64) float64 {
+	if bias <= 0 || d <= 0 {
+		return d
+	}
+	return math.Pow(d, 1-0.6*clamp01(bias))
+}
+
 // blend 计算单风扇曲线混合系数。
 func (a *Allocator) blend(demand, coolerRatio, temp, guard float64, coolerConnected bool) float64 {
 	c := a.cfg
 	d := demand
+	// 散热优先时削减减负额度与介入拐点：bias 越大越接近"不让路、早介入"
+	assist := c.AssistCredit * (1 - clamp01(c.CoolingBias))
+	knee := c.LaptopKnee * (1 - clamp01(c.CoolingBias))
 	if coolerRatio > 0 && temp < guard {
-		d -= c.AssistCredit * coolerRatio
+		d -= assist * coolerRatio
 	}
 	b := 0.0
-	if d > c.LaptopKnee {
-		b = (d - c.LaptopKnee) / (1 - c.LaptopKnee)
+	if d > knee {
+		b = (d - knee) / (1 - knee)
 	}
 	// 散热器断连时的失援补偿：至少 Default 曲线
 	if !coolerConnected {

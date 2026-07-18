@@ -124,6 +124,23 @@ func TestBlendQuantized(t *testing.T) {
 	}
 }
 
+func TestCoolingBiasRampsEarlier(t *testing.T) {
+	noiseCfg := DefaultConfig()
+	noiseCfg.CoolingBias = 0 // 原噪音优先策略
+	coolCfg := DefaultConfig()
+	coolCfg.CoolingBias = 0.7 // 散热优先 7:3
+
+	noise := New(noiseCfg)
+	cool := New(coolCfg)
+	// 同一中等温度、无散热器助力，散热优先应给出更高的笔记本混合系数
+	in := Input{CpuTemp: 68, GpuTemp: 55, DtSeconds: 2, CoolerConnected: true, CoolerRPMRatio: 0.3}
+	n := noise.Tick(in)
+	c := cool.Tick(in)
+	if c.CpuBlend <= n.CpuBlend {
+		t.Fatalf("散热优先应比噪音优先更早拉高笔记本风扇: cool=%.2f noise=%.2f", c.CpuBlend, n.CpuBlend)
+	}
+}
+
 func TestResetClearsPanic(t *testing.T) {
 	a := New(DefaultConfig())
 	tick(a, 96, 60, 0.5)
