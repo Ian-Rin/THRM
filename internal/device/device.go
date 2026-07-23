@@ -58,7 +58,7 @@ func shouldSkipBLEFallback(preferLastTransport bool, lastDeviceType string, sinc
 const (
 	maxConsecutiveReadErrors          = 20
 	maxConsecutiveRealtimeWriteErrors = 3
-	hidReadTimeout                    = time.Second
+	hidReadPollInterval               = 100 * time.Millisecond
 	hidReadErrorRetryDelay            = 500 * time.Millisecond
 )
 
@@ -309,10 +309,10 @@ func (m *Manager) DisconnectSilently() {
 
 // DisconnectForRecovery 断开设备以便执行恢复重连。
 //
-// 休眠/唤醒后，hidapi 的 ReadWithTimeout 在极少数机器上可能永远不返回。此时不能
-// 直接 Close 仍在读取的句柄（会导致 cgo use-after-free），但也不能继续把它标记为
-// 已连接，否则后续 Connect 会错误地直接返回成功而不重新打开设备。超时后本方法会
-// 安全地脱离旧句柄，允许恢复流程建立新连接；旧监控协程返回时仍会自行关闭旧句柄。
+// 休眠/唤醒后 HID 句柄可能失效。恢复时不能直接 Close 仍由监控协程拥有的句柄
+// （会导致 cgo use-after-free），但也不能继续把它标记为已连接，否则后续 Connect
+// 会错误地直接返回成功而不重新打开设备。等待超时后本方法会安全地脱离旧句柄，
+// 允许恢复流程建立新连接；旧监控协程返回时仍会自行关闭旧句柄。
 func (m *Manager) DisconnectForRecovery() {
 	m.disconnect(false, true)
 }
@@ -358,8 +358,8 @@ func (m *Manager) disconnect(notify, detachOnTimeout bool) {
 			close(stop)
 		}
 
-		// ReadWithTimeout 最多等待 1 秒，正常会很快退出；超时则不强行关闭仍可能在读的
-		// 句柄，避免触发崩溃，交由监控协程稍后自行收尾。
+		// 非阻塞监控通常会在一个轮询周期内退出；等待超时后仍不强行关闭由监控协程
+		// 拥有的句柄，避免触发崩溃，交由监控协程稍后自行收尾。
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second):
@@ -507,9 +507,11 @@ func (m *Manager) monitorDeviceData(device *hid.Device, stop <-chan struct{}, do
 		return
 	}
 
-	// 设置非阻塞模式
+	// SetNonblock 只影响 Read；失败时不能退回 ReadWithTimeout，因为失效的 Windows
+	// HID 句柄可能让原生超时读取永久不返回，进而阻塞断联回调与自动重连。
 	if err := device.SetNonblock(true); err != nil {
 		m.logError("设置非阻塞模式失败: %v", err)
+		return
 	}
 
 	buffer := make([]byte, 64)
@@ -524,12 +526,13 @@ func (m *Manager) monitorDeviceData(device *hid.Device, stop <-chan struct{}, do
 		default:
 		}
 
-		// 空闲时设备不会持续上报。使用 1 秒超时可将 HID 空读唤醒频率减半，
-		// 同时仍能在约 1 秒内响应停止/重连请求。
-		n, err := device.ReadWithTimeout(buffer, hidReadTimeout)
+		// Read 受上面的非阻塞设置控制，不会把协程永久困在失效的原生句柄中。
+		// 空闲时短暂休眠，避免无数据轮询占用 CPU，且能快速响应停止/重连请求。
+		n, err := device.Read(buffer)
 		if err != nil {
 			if err == hid.ErrTimeout {
 				consecutiveErrors = 0
+				time.Sleep(hidReadPollInterval)
 				continue
 			}
 
@@ -552,39 +555,41 @@ func (m *Manager) monitorDeviceData(device *hid.Device, stop <-chan struct{}, do
 		}
 
 		consecutiveErrors = 0
+		if n == 0 {
+			time.Sleep(hidReadPollInterval)
+			continue
+		}
 
-		if n > 0 {
-			m.recordDebugFrame("rx", types.DeviceTypeHID, buffer[:n])
-			fanData := m.parseFanData(buffer, n)
-			if fanData != nil {
-				// A monitor from a detached pre-suspend handle can unblock after a
-				// replacement connection has been established. Do not let that old
-				// handle overwrite the fresh connection's status cache.
-				m.mutex.RLock()
-				active := m.isConnected && m.device == device
-				m.mutex.RUnlock()
-				if !active {
-					return
+		m.recordDebugFrame("rx", types.DeviceTypeHID, buffer[:n])
+		fanData := m.parseFanData(buffer, n)
+		if fanData != nil {
+			// A monitor from a detached pre-suspend handle can unblock after a
+			// replacement connection has been established. Do not let that old
+			// handle overwrite the fresh connection's status cache.
+			m.mutex.RLock()
+			active := m.isConnected && m.device == device
+			m.mutex.RUnlock()
+			if !active {
+				return
+			}
+
+			if fanData.CurrentMode&0x01 == 0 {
+				// A physical gear change or a reconnect places the device back in
+				// gear mode. The next software target must send a fresh realtime
+				// mode-entry command rather than assuming the old session remains.
+				m.mutex.Lock()
+				if m.device == device {
+					m.realtimeMode = false
+					m.hasCommandedRPM = false
 				}
+				m.mutex.Unlock()
+			}
 
-				if fanData.CurrentMode&0x01 == 0 {
-					// A physical gear change or a reconnect places the device back in
-					// gear mode. The next software target must send a fresh realtime
-					// mode-entry command rather than assuming the old session remains.
-					m.mutex.Lock()
-					if m.device == device {
-						m.realtimeMode = false
-						m.hasCommandedRPM = false
-					}
-					m.mutex.Unlock()
-				}
+			// 无锁原子写
+			m.currentFanData.Store(fanData)
 
-				// 无锁原子写
-				m.currentFanData.Store(fanData)
-
-				if m.onFanDataUpdate != nil {
-					m.onFanDataUpdate(fanData)
-				}
+			if m.onFanDataUpdate != nil {
+				m.onFanDataUpdate(fanData)
 			}
 		}
 	}

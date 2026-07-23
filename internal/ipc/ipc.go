@@ -4,6 +4,7 @@ package ipc
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -187,6 +188,9 @@ type clientState struct {
 
 const clientWriteQueueSize = 64
 const defaultRequestTimeout = 15 * time.Second
+const serverCriticalEventEnqueueTimeout = 500 * time.Millisecond
+
+var ErrRequestTimeout = errors.New("等待 IPC 响应超时")
 
 // RequestHandler 请求处理函数类型
 type RequestHandler func(req Request) Response
@@ -212,8 +216,10 @@ func (s *Server) Start() error {
 		return err
 	}
 
+	s.mutex.Lock()
 	s.listener = listener
 	s.running = true
+	s.mutex.Unlock()
 	s.logInfo("IPC 服务器已启动: %s", addr)
 
 	// 接受连接
@@ -225,10 +231,16 @@ func (s *Server) Start() error {
 // acceptConnections 接受客户端连接
 func (s *Server) acceptConnections() {
 	consecutiveFailures := 0
-	for s.running {
-		conn, err := s.listener.Accept()
+	for s.isRunning() {
+		s.mutex.RLock()
+		listener := s.listener
+		s.mutex.RUnlock()
+		if listener == nil {
+			return
+		}
+		conn, err := listener.Accept()
 		if err != nil {
-			if !s.running {
+			if !s.isRunning() {
 				return
 			}
 			// 监听器持续故障时退避重试，避免热循环空转占满 CPU 并刷爆日志。
@@ -255,6 +267,12 @@ func (s *Server) acceptConnections() {
 		go s.clientWriter(state)
 		go s.handleClient(conn, state)
 	}
+}
+
+func (s *Server) isRunning() bool {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return s.running
 }
 
 func (s *Server) clientWriter(state *clientState) {
@@ -294,7 +312,7 @@ func (s *Server) handleClient(conn net.Conn, state *clientState) {
 
 	reader := bufio.NewReader(conn)
 
-	for s.running {
+	for s.isRunning() {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			s.logDebug("读取客户端请求失败: %v", err)
@@ -348,6 +366,11 @@ var highFrequencyEventTypes = map[string]time.Duration{
 	EventTemperatureHistoryUpdate: 1000 * time.Millisecond,
 }
 
+func isHighFrequencyEvent(eventType string) bool {
+	_, ok := highFrequencyEventTypes[eventType]
+	return ok
+}
+
 func (s *Server) shouldDropEvent(eventType string) bool {
 	threshold, ok := highFrequencyEventTypes[eventType]
 	if !ok {
@@ -398,32 +421,54 @@ func (s *Server) BroadcastEvent(eventType string, data any) {
 	payload := append(eventBytes, '\n')
 
 	s.mutex.RLock()
+	clients := make([]*clientState, 0, len(s.clients))
 	for _, state := range s.clients {
-		select {
-		case state.writeCh <- payload:
-		default:
-			s.logDebug("客户端写队列已满，丢弃事件: %s", eventType)
-		}
+		clients = append(clients, state)
 	}
 	s.mutex.RUnlock()
+
+	for _, state := range clients {
+		if isHighFrequencyEvent(eventType) {
+			select {
+			case state.writeCh <- payload:
+			case <-state.closed:
+			default:
+				s.logDebug("客户端写队列已满，丢弃高频事件: %s", eventType)
+			}
+			continue
+		}
+
+		timer := time.NewTimer(serverCriticalEventEnqueueTimeout)
+		select {
+		case state.writeCh <- payload:
+			timer.Stop()
+		case <-state.closed:
+			timer.Stop()
+		case <-timer.C:
+			s.logDebug("客户端写队列持续拥塞，丢弃关键事件: %s", eventType)
+		}
+	}
 }
 
 // Stop 停止服务器
 func (s *Server) Stop() {
-	s.running = false
-	if s.listener != nil {
-		s.listener.Close()
-	}
-
 	s.mutex.Lock()
-	for conn, state := range s.clients {
-		state.closeOnce.Do(func() {
-			close(state.closed)
-			conn.Close()
-		})
+	s.running = false
+	listener := s.listener
+	s.listener = nil
+	clients := make([]*clientState, 0, len(s.clients))
+	for _, state := range s.clients {
+		clients = append(clients, state)
 	}
 	s.clients = make(map[net.Conn]*clientState)
 	s.mutex.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
+	}
+	for _, state := range clients {
+		s.closeClient(state)
+	}
 
 	s.logInfo("IPC 服务器已停止")
 }
@@ -464,6 +509,7 @@ type Client struct {
 	reader       *bufio.Reader
 	logger       types.Logger
 	eventHandler func(Event)
+	eventMutex   sync.RWMutex
 
 	pendingMutex sync.Mutex
 	pending      map[string]chan *Response
@@ -471,6 +517,11 @@ type Client struct {
 	connected bool
 	connMutex sync.RWMutex
 }
+
+const (
+	clientEventQueueSize              = 64
+	clientCriticalEventEnqueueTimeout = 500 * time.Millisecond
+)
 
 // NewClient 创建 IPC 客户端
 func NewClient(logger types.Logger) *Client {
@@ -488,6 +539,11 @@ func (c *Client) Connect() error {
 	if c.connected {
 		return nil
 	}
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+		c.reader = nil
+	}
 
 	timeout := 5 * time.Second
 	var conn net.Conn
@@ -503,34 +559,37 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("连接 IPC 服务器失败: %v", err)
 	}
 
+	reader := bufio.NewReader(conn)
 	c.conn = conn
-	c.reader = bufio.NewReader(conn)
+	c.reader = reader
 	c.connected = true
 	c.logInfo("已连接到 IPC 服务器")
 
-	// 启动消息接收循环
-	go c.readLoop()
+	// 将读取循环绑定到本次连接，旧连接延迟返回时不能覆盖新连接状态。
+	go c.readLoop(conn, reader)
 
 	return nil
 }
 
 // readLoop 统一的消息读取循环
-func (c *Client) readLoop() {
-	for {
-		c.connMutex.RLock()
-		if !c.connected || c.reader == nil {
-			c.connMutex.RUnlock()
-			return
-		}
-		reader := c.reader
-		c.connMutex.RUnlock()
+func (c *Client) readLoop(conn net.Conn, reader *bufio.Reader) {
+	events := make(chan Event, clientEventQueueSize)
+	eventLoopDone := make(chan struct{})
+	go c.dispatchEvents(events, eventLoopDone)
+	defer close(eventLoopDone)
 
+	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			c.logDebug("读取消息失败: %v", err)
 			c.connMutex.Lock()
-			c.connected = false
+			if c.conn == conn {
+				c.connected = false
+				c.conn = nil
+				c.reader = nil
+			}
 			c.connMutex.Unlock()
+			_ = conn.Close()
 			return
 		}
 
@@ -564,16 +623,55 @@ func (c *Client) readLoop() {
 		} else if msg.IsEvent {
 			var event Event
 			if err := json.Unmarshal(line, &event); err == nil && event.Type != "" {
-				if c.eventHandler != nil {
-					go c.eventHandler(event)
+				if isHighFrequencyEvent(event.Type) {
+					select {
+					case events <- event:
+					default:
+						c.logDebug("客户端事件队列已满，丢弃高频事件: %s", event.Type)
+					}
+					continue
+				}
+
+				timer := time.NewTimer(clientCriticalEventEnqueueTimeout)
+				select {
+				case events <- event:
+					timer.Stop()
+				case <-timer.C:
+					c.logDebug("客户端事件队列持续拥塞，丢弃关键事件: %s", event.Type)
 				}
 			}
 		}
 	}
 }
 
+func (c *Client) dispatchEvents(events <-chan Event, done <-chan struct{}) {
+	for {
+		select {
+		case <-done:
+			return
+		case event := <-events:
+			c.eventMutex.RLock()
+			handler := c.eventHandler
+			c.eventMutex.RUnlock()
+			if handler == nil {
+				continue
+			}
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						c.logDebug("处理 IPC 事件时发生 panic: %v", recovered)
+					}
+				}()
+				handler(event)
+			}()
+		}
+	}
+}
+
 // SetEventHandler 设置事件处理函数
 func (c *Client) SetEventHandler(handler func(Event)) {
+	c.eventMutex.Lock()
+	defer c.eventMutex.Unlock()
 	c.eventHandler = handler
 }
 
@@ -639,19 +737,21 @@ func (c *Client) SendRequestWithTimeout(reqType RequestType, data any, timeout t
 		c.pendingMutex.Lock()
 		delete(c.pending, requestID)
 		c.pendingMutex.Unlock()
-		return nil, fmt.Errorf("等待响应超时")
+		return nil, fmt.Errorf("%w: request=%s, timeout=%s", ErrRequestTimeout, reqType, timeout)
 	}
 }
 
 // Close 关闭连接
 func (c *Client) Close() {
 	c.connMutex.Lock()
-	defer c.connMutex.Unlock()
-
+	conn := c.conn
 	c.connected = false
-	if c.conn != nil {
-		c.conn.Close()
-		c.conn = nil
+	c.conn = nil
+	c.reader = nil
+	c.connMutex.Unlock()
+
+	if conn != nil {
+		_ = conn.Close()
 	}
 }
 
