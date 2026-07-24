@@ -1,7 +1,10 @@
 package ipc
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -59,6 +62,52 @@ func TestMultiClientConcurrent(t *testing.T) {
 	}
 }
 
+func TestStaleReadLoopDoesNotDisconnectReplacement(t *testing.T) {
+	client := NewClient(testLogger{})
+	oldClientConn, oldServerConn := net.Pipe()
+	newClientConn, newServerConn := net.Pipe()
+	defer newServerConn.Close()
+
+	client.connMutex.Lock()
+	client.conn = oldClientConn
+	client.reader = bufio.NewReader(oldClientConn)
+	client.connected = true
+	oldReader := client.reader
+	client.connMutex.Unlock()
+
+	readLoopDone := make(chan struct{})
+	go func() {
+		client.readLoop(oldClientConn, oldReader)
+		close(readLoopDone)
+	}()
+
+	client.connMutex.Lock()
+	client.conn = newClientConn
+	client.reader = bufio.NewReader(newClientConn)
+	client.connected = true
+	client.connMutex.Unlock()
+
+	_ = oldServerConn.Close()
+	select {
+	case <-readLoopDone:
+	case <-time.After(time.Second):
+		t.Fatal("stale read loop did not exit")
+	}
+
+	client.connMutex.RLock()
+	connected := client.connected
+	activeConn := client.conn
+	client.connMutex.RUnlock()
+	if !connected {
+		t.Fatal("stale read loop marked the replacement connection disconnected")
+	}
+	if activeConn != newClientConn {
+		t.Fatal("stale read loop replaced the active connection")
+	}
+
+	client.Close()
+}
+
 // TestSlowHandlerCompletes verifies a request with a slow handler eventually returns
 func TestSlowHandlerCompletes(t *testing.T) {
 	logger := testLogger{}
@@ -93,6 +142,34 @@ func TestSlowHandlerCompletes(t *testing.T) {
 		t.Errorf("Request completed too fast (%v), expected >= 50ms", elapsed)
 	}
 	t.Logf("Slow request completed in %v", elapsed)
+}
+
+func TestSendRequestTimeoutIsClassified(t *testing.T) {
+	logger := testLogger{}
+	handler := func(req Request) Response {
+		time.Sleep(50 * time.Millisecond)
+		return Response{Success: true}
+	}
+
+	server := NewServer(handler, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer server.Stop()
+
+	client := NewClient(logger)
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Connect error: %v", err)
+	}
+	defer client.Close()
+
+	_, err := client.SendRequestWithTimeout(ReqPing, nil, 5*time.Millisecond)
+	if !errors.Is(err, ErrRequestTimeout) {
+		t.Fatalf("SendRequestWithTimeout error = %v, want ErrRequestTimeout", err)
+	}
+	if !client.IsConnected() {
+		t.Fatal("request timeout should not mark the transport disconnected")
+	}
 }
 
 // TestJSONMalformedInput verifies server does not crash on non-JSON input

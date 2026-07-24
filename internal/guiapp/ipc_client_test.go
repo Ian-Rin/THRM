@@ -1,10 +1,54 @@
 package guiapp
 
 import (
+	"errors"
 	"testing"
+	"time"
 
+	"github.com/TIANLI0/THRM/internal/ipc"
 	"github.com/TIANLI0/THRM/internal/types"
 )
+
+func TestUpdateGuiResponseTimeRequestPolicy(t *testing.T) {
+	timeout, retryable := ipcRequestPolicy(ipc.ReqUpdateGuiResponseTime)
+	if timeout != 12*time.Second {
+		t.Fatalf("ipcRequestPolicy timeout = %s, want 12s", timeout)
+	}
+	if !retryable {
+		t.Fatal("UpdateGuiResponseTime should be retryable after reconnect")
+	}
+}
+
+func TestShouldReconnectAfterIPCError(t *testing.T) {
+	timeoutErr := ipc.ErrRequestTimeout
+	if shouldReconnectAfterIPCError(timeoutErr, ipcTimeoutReconnectThreshold-1) {
+		t.Fatal("transient IPC timeout should keep the current connection")
+	}
+	if !shouldReconnectAfterIPCError(timeoutErr, ipcTimeoutReconnectThreshold) {
+		t.Fatal("repeated IPC timeouts should trigger reconnect")
+	}
+	if !shouldReconnectAfterIPCError(errors.New("broken pipe"), 0) {
+		t.Fatal("non-timeout IPC errors should reconnect immediately")
+	}
+}
+
+func TestRecordIPCTimeoutUsesWindow(t *testing.T) {
+	app := &App{}
+	start := time.Unix(1000, 0)
+	if got := app.recordIPCTimeout(start); got != 1 {
+		t.Fatalf("first timeout count = %d, want 1", got)
+	}
+	if got := app.recordIPCTimeout(start.Add(ipcTimeoutReconnectWindow / 2)); got != 2 {
+		t.Fatalf("timeout inside window count = %d, want 2", got)
+	}
+	if got := app.recordIPCTimeout(start.Add(2 * ipcTimeoutReconnectWindow)); got != 1 {
+		t.Fatalf("timeout outside window count = %d, want reset to 1", got)
+	}
+	app.resetIPCTimeouts()
+	if got := app.recordIPCTimeout(start.Add(3 * ipcTimeoutReconnectWindow)); got != 1 {
+		t.Fatalf("timeout after success reset = %d, want 1", got)
+	}
+}
 
 func TestMergeTemperatureMetadata(t *testing.T) {
 	previous := types.TemperatureData{

@@ -222,6 +222,10 @@ export function SetTemperatureHistoryEnabled(arg1) {
   return window['go']['main']['App']['SetTemperatureHistoryEnabled'](arg1);
 }
 
+export function SetTemperatureHistoryRetentionHours(arg1) {
+  return window['go']['main']['App']['SetTemperatureHistoryRetentionHours'](arg1);
+}
+
 export function SetWindowsAutoStart(arg1) {
   return window['go']['main']['App']['SetWindowsAutoStart'](arg1);
 }

@@ -3,6 +3,7 @@ package guiapp
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/TIANLI0/THRM/internal/ipc"
 	"github.com/TIANLI0/THRM/internal/theme"
@@ -15,6 +16,10 @@ type App struct {
 	ctx       context.Context
 	ipcClient *ipc.Client
 	mutex     sync.RWMutex
+
+	ipcHealthMutex sync.Mutex
+	ipcTimeouts    uint32
+	lastIPCTimeout time.Time
 
 	// 缓存的状态
 	isConnected bool

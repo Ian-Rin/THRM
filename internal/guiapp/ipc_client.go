@@ -2,6 +2,7 @@ package guiapp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,9 +21,41 @@ func ipcRequestPolicy(reqType ipc.RequestType) (time.Duration, bool) {
 		return 6 * time.Second, true
 	case ipc.ReqConnect, ipc.ReqRestartPawnIO, ipc.ReqReinstallPawnIO:
 		return 30 * time.Second, false
+	case ipc.ReqUpdateGuiResponseTime:
+		return 12 * time.Second, true
 	default:
 		return 12 * time.Second, false
 	}
+}
+
+const (
+	ipcTimeoutReconnectThreshold = 3
+	ipcTimeoutReconnectWindow    = 30 * time.Second
+)
+
+func shouldReconnectAfterIPCError(err error, consecutiveTimeouts uint32) bool {
+	if !errors.Is(err, ipc.ErrRequestTimeout) {
+		return true
+	}
+	return consecutiveTimeouts >= ipcTimeoutReconnectThreshold
+}
+
+func (a *App) recordIPCTimeout(now time.Time) uint32 {
+	a.ipcHealthMutex.Lock()
+	defer a.ipcHealthMutex.Unlock()
+	if a.lastIPCTimeout.IsZero() || now.Sub(a.lastIPCTimeout) > ipcTimeoutReconnectWindow {
+		a.ipcTimeouts = 0
+	}
+	a.ipcTimeouts++
+	a.lastIPCTimeout = now
+	return a.ipcTimeouts
+}
+
+func (a *App) resetIPCTimeouts() {
+	a.ipcHealthMutex.Lock()
+	a.ipcTimeouts = 0
+	a.lastIPCTimeout = time.Time{}
+	a.ipcHealthMutex.Unlock()
 }
 
 func mergeTemperatureMetadata(previous, incoming types.TemperatureData) types.TemperatureData {
@@ -185,9 +218,21 @@ func (a *App) sendRequest(reqType ipc.RequestType, data any) (*ipc.Response, err
 
 	resp, err := a.ipcClient.SendRequestWithTimeout(reqType, data, timeout)
 	if err == nil {
+		a.resetIPCTimeouts()
 		a.emitCoreServiceOK()
 		return resp, nil
 	}
+
+	timeoutCount := uint32(0)
+	if errors.Is(err, ipc.ErrRequestTimeout) {
+		timeoutCount = a.recordIPCTimeout(time.Now())
+	}
+	if !shouldReconnectAfterIPCError(err, timeoutCount) {
+		guiLogger.Warnf("IPC 请求超时，保留当前连接等待恢复（%d/%d）: %v",
+			timeoutCount, ipcTimeoutReconnectThreshold, err)
+		return nil, err
+	}
+	a.resetIPCTimeouts()
 
 	guiLogger.Warnf("IPC 请求失败，尝试重新连接核心服务后重试: %v", err)
 	a.ipcClient.Close()
@@ -202,6 +247,7 @@ func (a *App) sendRequest(reqType ipc.RequestType, data any) (*ipc.Response, err
 		return nil, wrapped
 	}
 	a.ipcClient.SetEventHandler(a.handleCoreEvent)
+	a.resetIPCTimeouts()
 	if !retryable {
 		wrapped := fmt.Errorf("request %s may have been applied before IPC disconnected; state was not replayed automatically: %v", reqType, err)
 		a.emitCoreServiceError(wrapped.Error())
@@ -213,6 +259,7 @@ func (a *App) sendRequest(reqType ipc.RequestType, data any) (*ipc.Response, err
 		a.emitCoreServiceError(err.Error())
 		return nil, err
 	}
+	a.resetIPCTimeouts()
 	a.emitCoreServiceOK()
 	return resp, nil
 }
